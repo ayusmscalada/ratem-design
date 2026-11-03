@@ -15,6 +15,9 @@ type Ctx = {
   setRange: (r: DateRange) => void;
   edges: EdgeStates;
   setEdges: (e: Partial<EdgeStates>) => void;
+  /** Per-card player filter. Kept for this session only, so a fresh visit starts on "All". */
+  playerFilter: Record<string, string>;
+  setPlayerFilter: (card: string, player: string) => void;
   focusFixture: string | null;
   setFocusFixture: (id: string | null) => void;
   toast: string | null;
@@ -33,7 +36,9 @@ export function Provider({ children }: { children: ReactNode }) {
   const [fixtures, setFixtures] = useState(FIXTURES);
   const [filter, setFilter] = useState<HistoryFilter>("all");
   const [range, setRange] = useState<DateRange>(null);
-  const [edges, setEdgeState] = useState<EdgeStates>({ managerGap: "gap", managerTrend: "many", draws: true });
+  const [edges, setEdgeState] = useState<EdgeStates>({ raceTie: false, mood: "normal", managerGap: "gap", managerTrend: "many", draws: true });
+  const [playerFilter, setFilters] = useState<Record<string, string>>({});
+  const setPlayerFilter = useCallback((card: string, player: string) => setFilters((f) => ({ ...f, [card]: player })), []);
   const [focusFixture, setFocusFixture] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -55,8 +60,8 @@ export function Provider({ children }: { children: ReactNode }) {
   const setEdges = useCallback((next: Partial<EdgeStates>) => setEdgeState((e) => ({ ...e, ...next })), []);
 
   const value = useMemo(
-    () => ({ fixtures, rateFixture, filter, setFilter, range, setRange, edges, setEdges, focusFixture, setFocusFixture, toast, showToast }),
-    [fixtures, rateFixture, filter, range, edges, setEdges, focusFixture, toast, showToast],
+    () => ({ fixtures, rateFixture, filter, setFilter, range, setRange, edges, setEdges, playerFilter, setPlayerFilter, focusFixture, setFocusFixture, toast, showToast }),
+    [fixtures, rateFixture, filter, range, edges, setEdges, playerFilter, setPlayerFilter, focusFixture, toast, showToast],
   );
 
   return <PrototypeContext.Provider value={value}>{children}</PrototypeContext.Provider>;

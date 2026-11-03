@@ -24,6 +24,20 @@ function ReviewPanel() {
       </nav>
       <h2>Data states</h2>
       <label>
+        Season MOTM Race
+        <select value={edges.raceTie ? "tie" : "lead"} onChange={(e) => setEdges({ raceTie: e.target.value === "tie" })}>
+          <option value="lead">Clear leader</option>
+          <option value="tie">Tie at the top</option>
+        </select>
+      </label>
+      <label>
+        Fanbase Mood
+        <select value={edges.mood} onChange={(e) => setEdges({ mood: e.target.value as "normal" | "none" })}>
+          <option value="normal">Rated fixtures</option>
+          <option value="none">No fixtures yet</option>
+        </select>
+      </label>
+      <label>
         Fan Manager Rating
         <select value={edges.managerGap} onChange={(e) => setEdges({ managerGap: e.target.value as "gap" | "equal" })}>
           <option value="gap">Home and away differ</option>

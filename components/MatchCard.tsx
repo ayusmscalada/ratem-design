@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { MANAGER, SQUAD, type Fixture, type Rating } from "@/lib/data";
+import { CLUB, MANAGER, SQUAD, type Fixture, type Rating } from "@/lib/data";
 import { usePrototype } from "./Provider";
 import { Img, Jersey, RatingPill, TeamLogo } from "./ui";
 
@@ -15,13 +15,23 @@ const BENCH = ["Kelleher", "Gomez", "Tsimikas", "Endo", "Elliott", "Jones", "Jot
 function teamRow(f: Fixture, side: "home" | "away") {
   const team = f[side];
   const score = f[`${side}Score`];
+  const other = f[side === "home" ? "awayScore" : "homeScore"];
+  const lost = score !== null && other !== null && score < other;
   return (
-    <div className="team-row" key={side}>
-      <TeamLogo name={team} />
+    <div className={`team-row${lost ? " lost" : ""}`} key={side}>
+      <TeamLogo name={team} size={24} />
       <span className="team-name">{team}</span>
       <span className="team-score">{score ?? "–"}</span>
     </div>
   );
+}
+
+/** W / D / L from the user's club's point of view. Only for finished matches. */
+function result(f: Fixture): "W" | "D" | "L" | null {
+  if (f.status === "live" || f.homeScore === null || f.awayScore === null) return null;
+  const us = f.home === CLUB ? f.homeScore : f.awayScore;
+  const them = f.home === CLUB ? f.awayScore : f.homeScore;
+  return us > them ? "W" : us < them ? "L" : "D";
 }
 
 function XsRating({ kind, value }: { kind: "you" | "fan"; value: string }) {
@@ -162,6 +172,7 @@ export function MatchCard({ fixture, focused, openRatings }: { fixture: Fixture;
       <header className="fixture-tag">
         <Img src="tab-corner.svg" w={9.66} h={24.66} />
         <div>
+          {result(fixture) && <em className={`res ${result(fixture)}`} aria-label={{ W: "Win", D: "Draw", L: "Loss" }[result(fixture)!]}>{result(fixture)}</em>}
           <span className="fixture-date">{fixture.dateLabel}</span>
           {live ? <span className="live"><i />Live</span> : <span className="fixture-status">{statusText}</span>}
           {rated && (
