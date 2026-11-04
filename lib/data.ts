@@ -1,23 +1,28 @@
 // Sample data for the Club Hub prototype. Every figure is illustrative and needs
 // the approved metric contract before build (handbook §4.1, VALIDATE).
 
-export type FixtureStatus = "live" | "open" | "rated" | "closed" | "awaiting";
+export type FixtureStatus = "upcoming" | "live" | "open" | "rated" | "closed" | "awaiting";
 export type Rating = { name: string; pos: string; initial: string; no: number; you: number; fan: number; youMotm: number; fanMotm: number };
 
 export type Fixture = {
   id: string;
   date: string;
   dateLabel: string;
+  /** Local kickoff time, 24h. */
+  kickoff: string;
+  competition: string;
+  venue: string;
   home: string;
   away: string;
   homeScore: number | null;
   awayScore: number | null;
   status: FixtureStatus;
+  /** Match clock for live fixtures. */
+  minute?: string;
   fanRating?: number;
   youRating?: number;
   remaining?: string;
   fans?: number;
-  expanded?: boolean;
   comment?: string;
 };
 
@@ -46,19 +51,23 @@ export const SQUAD: Rating[] = [
 
 export const MANAGER: Rating = { name: "Head Coach", pos: "Manager", initial: "H", no: 0, you: 7.2, fan: 7.6, youMotm: 0, fanMotm: 0 };
 
+/** Newest first. "Today" in the prototype is Sat 7 Mar 2026. */
 export const FIXTURES: Fixture[] = [
-  { id: "live", date: "2026-03-03", dateLabel: "Mar 3rd ’26", home: "Sturm Graz", away: "Inter", homeScore: 3, awayScore: 1, status: "live" },
-  { id: "open", date: "2026-03-03", dateLabel: "Mar 3rd ’26", home: "Sturm Graz", away: "Inter", homeScore: 3, awayScore: 3, status: "open", fanRating: 7.4, remaining: "23h 15m remaining", fans: 666, expanded: true },
-  { id: "rated", date: "2026-03-01", dateLabel: "Mar 1st ’26", home: "Sturm Graz", away: "Inter", homeScore: 3, awayScore: 3, status: "rated", youRating: 7.6, fanRating: 7.2, fans: 666, expanded: true, comment: "Played well all over the pitch. The press won the midfield early, and the second half showed real belief from the whole squad until the final whistle." },
-  { id: "awaiting", date: "2026-02-24", dateLabel: "Feb 24th ’26", home: "Sturm Graz", away: "Everton", homeScore: null, awayScore: null, status: "awaiting" },
-  { id: "closed", date: "2026-02-18", dateLabel: "Feb 18th ’26", home: "Brighton", away: "Sturm Graz", homeScore: 1, awayScore: 2, status: "closed", fanRating: 6.7, fans: 512 },
-  { id: "mci-home", date: "2026-01-12", dateLabel: "Jan 12th ’26", home: "Sturm Graz", away: "Manchester City", homeScore: 4, awayScore: 1, status: "rated", youRating: 8.6, fanRating: 8.4, fans: 842, comment: "Best team performance of the season." },
-  { id: "mci-away", date: "2025-11-09", dateLabel: "Nov 9th ’25", home: "Manchester City", away: "Sturm Graz", homeScore: 4, awayScore: 0, status: "closed", fanRating: 4.1, fans: 701 },
+  { id: "next", date: "2026-03-14", dateLabel: "Sat 14 Mar", kickoff: "17:00", competition: "Bundesliga", venue: "Merkur Arena", home: "Sturm Graz", away: "Austria Wien", homeScore: null, awayScore: null, status: "upcoming" },
+  { id: "live", date: "2026-03-07", dateLabel: "Sat 7 Mar", kickoff: "18:00", competition: "Bundesliga", venue: "Red Bull Arena", home: "Red Bull Salzburg", away: "Sturm Graz", homeScore: 1, awayScore: 1, status: "live", minute: "63′" },
+  { id: "open", date: "2026-03-04", dateLabel: "Wed 4 Mar", kickoff: "20:30", competition: "Bundesliga", venue: "Allianz Stadion", home: "Rapid Wien", away: "Sturm Graz", homeScore: 0, awayScore: 2, status: "open", fanRating: 7.4, remaining: "23h 15m", fans: 666 },
+  { id: "rated", date: "2026-03-01", dateLabel: "Sun 1 Mar", kickoff: "21:00", competition: "Champions League", venue: "Merkur Arena", home: "Sturm Graz", away: "Inter", homeScore: 3, awayScore: 3, status: "rated", youRating: 7.6, fanRating: 7.2, fans: 666, comment: "Played well all over the pitch. The press won the midfield early, and the second half showed real belief from the whole squad until the final whistle." },
+  { id: "awaiting", date: "2026-02-24", dateLabel: "Tue 24 Feb", kickoff: "21:00", competition: "Champions League", venue: "Merkur Arena", home: "Sturm Graz", away: "Everton", homeScore: null, awayScore: null, status: "awaiting" },
+  { id: "closed", date: "2026-02-18", dateLabel: "Wed 18 Feb", kickoff: "21:00", competition: "Champions League", venue: "Amex Stadium", home: "Brighton", away: "Sturm Graz", homeScore: 1, awayScore: 2, status: "closed", fanRating: 6.7, fans: 512 },
+  { id: "mci-home", date: "2026-01-12", dateLabel: "Mon 12 Jan", kickoff: "21:00", competition: "Champions League", venue: "Merkur Arena", home: "Sturm Graz", away: "Manchester City", homeScore: 4, awayScore: 1, status: "rated", youRating: 8.6, fanRating: 8.4, fans: 842, comment: "Best team performance of the season." },
+  { id: "gladbach", date: "2025-12-10", dateLabel: "Wed 10 Dec", kickoff: "18:45", competition: "Champions League", venue: "Borussia-Park", home: "Borussia Mönchengladbach", away: "Sturm Graz", homeScore: 2, awayScore: 2, status: "closed", fanRating: 6.3, fans: 588 },
+  { id: "mci-away", date: "2025-11-09", dateLabel: "Sun 9 Nov", kickoff: "17:30", competition: "Champions League", venue: "Etihad Stadium", home: "Manchester City", away: "Sturm Graz", homeScore: 4, awayScore: 0, status: "closed", fanRating: 4.1, fans: 701 },
 ];
 
 export type EdgeStates = {
   raceTie: boolean;
   mood: "normal" | "none";
+  history: "ready" | "loading" | "error";
   managerGap: "gap" | "equal";
   managerTrend: "many" | "one" | "none";
   draws: boolean;

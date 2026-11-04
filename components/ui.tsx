@@ -9,12 +9,36 @@ export function Img({ src, size, w, h, alt = "", style }: { src: string; size?: 
   return <img src={src.startsWith("/") ? src : `/figma/${src}`} alt={alt} width={size ?? w} height={size ?? h} style={style} />;
 }
 
+/**
+ * Reports an image that failed to load, including failures that happen before
+ * hydration (when React's onError has not been attached yet).
+ */
+function useBroken() {
+  const ref = useRef<HTMLImageElement>(null);
+  const [broken, setBroken] = useState(false);
+  useEffect(() => {
+    const img = ref.current;
+    if (img && img.complete && img.naturalWidth === 0) setBroken(true);
+  }, []);
+  return { ref, broken, onError: () => setBroken(true) };
+}
+
+/** Decorative photo that removes itself if it fails, leaving the brand gradient behind it. */
+export function Photo({ className, src, priority }: { className: string; src: string; priority?: boolean }) {
+  const { ref, broken, onError } = useBroken();
+  if (broken) return null;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img ref={ref} className={className} src={src} alt="" onError={onError} fetchPriority={priority ? "high" : undefined} loading={priority ? undefined : "lazy"} />;
+}
+
 const CREST_COLOURS = ["#c8102e", "#6cabdd", "#034694", "#ef0107", "#0057b8", "#241f20", "#fdb913"];
 
 /** Club crest. Uses the real logo when we have one, otherwise a neutral shield with the club's initials. */
 export function TeamLogo({ name, size = 16 }: { name: string; size?: number }) {
+  const { ref, broken, onError } = useBroken();
   const src = LOGOS[name];
-  if (src) return <Img src={src} size={size} alt="" />;
+  // eslint-disable-next-line @next/next/no-img-element
+  if (src && !broken) return <img ref={ref} className="crest" src={src} width={size} height={size} alt="" onError={onError} />;
   const initials = name.split(" ").map((w) => w[0]).join("").slice(0, 3).toUpperCase();
   const colour = CREST_COLOURS[[...name].reduce((n, c) => n + c.charCodeAt(0), 0) % CREST_COLOURS.length];
   return (
@@ -37,9 +61,9 @@ export function Card({ title, children, gap = 9 }: { title: string; children: Re
 
 export function RatingPill({ kind, value }: { kind: "you" | "fan"; value: number }) {
   return (
-    <span className={`rating-pill ${kind}`}>
-      <Img src={kind === "you" ? "star-you.svg" : "star-fan.svg"} w={9.6} h={9} />
-      {value.toFixed(1)}
+    <span className={`rating-pill ${kind}`} aria-label={`${kind === "you" ? "Your rating" : "Fan rating"} ${value.toFixed(1)}`}>
+      <small aria-hidden>{kind === "you" ? "You" : "Fans"}</small>
+      <b aria-hidden>{value.toFixed(1)}</b>
     </span>
   );
 }

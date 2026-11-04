@@ -24,6 +24,14 @@ function ReviewPanel() {
       </nav>
       <h2>Data states</h2>
       <label>
+        Match History
+        <select value={edges.history} onChange={(e) => setEdges({ history: e.target.value as "ready" | "loading" | "error" })}>
+          <option value="ready">Loaded</option>
+          <option value="loading">Loading</option>
+          <option value="error">Failed to load</option>
+        </select>
+      </label>
+      <label>
         Season MOTM Race
         <select value={edges.raceTie ? "tie" : "lead"} onChange={(e) => setEdges({ raceTie: e.target.value === "tie" })}>
           <option value="lead">Clear leader</option>
@@ -86,7 +94,7 @@ function BottomNav() {
 
 export function Shell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { toast } = usePrototype();
+  const { toast, dismissToast } = usePrototype();
   const scroller = useRef<HTMLDivElement>(null);
   const offsets = useRef<Record<string, number>>({});
 
@@ -112,7 +120,17 @@ export function Shell({ children }: { children: ReactNode }) {
           {children}
         </div>
         <BottomNav />
-        {toast && <div className="toast" role="status">{toast}</div>}
+        <div className="toast-zone" role="status" aria-live="polite">
+          {toast && (
+            <div className={`toast ${toast.tone ?? "info"}`} key={toast.message}>
+              {toast.tone === "success" && <span className="toast-icon" aria-hidden>✓</span>}
+              <span className="toast-msg">{toast.message}</span>
+              {toast.action && (
+                <button className="toast-action" onClick={() => { const run = toast.action!.run; dismissToast(); run(); }}>{toast.action.label}</button>
+              )}
+            </div>
+          )}
+        </div>
         <div id="sheet-root" />
       </div>
     </div>

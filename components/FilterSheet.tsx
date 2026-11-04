@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { usePrototype, type HistoryFilter } from "./Provider";
+import { matchesFilter, usePrototype, type HistoryFilter } from "./Provider";
 import { Img, Sheet } from "./ui";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -14,11 +14,19 @@ const CHIPS: { id: HistoryFilter; label: string }[] = [
 const iso = (y: number, m: number, d: number) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 
 export function FilterSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { filter, setFilter, setRange } = usePrototype();
+  const { fixtures, filter, setFilter, range, setRange } = usePrototype();
+  // Opens on the filters currently applied, so nothing the fan set is lost.
   const [chip, setChip] = useState(filter);
-  const [month, setMonth] = useState({ y: 2026, m: 2 });
-  const [from, setFrom] = useState<string | null>(null);
-  const [to, setTo] = useState<string | null>(null);
+  const [month, setMonth] = useState(() => {
+    const d = range ? new Date(`${range.from}T12:00:00`) : new Date(2026, 2, 7);
+    return { y: d.getFullYear(), m: d.getMonth() };
+  });
+  const [from, setFrom] = useState<string | null>(range?.from ?? null);
+  const [to, setTo] = useState<string | null>(range && range.to !== range.from ? range.to : null);
+  const draft = from ? { from, to: to ?? from } : null;
+  const count = fixtures.filter((f) => matchesFilter(f, chip, draft)).length;
+  const label = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const summary = !from ? "Any date" : !to ? `${label(from)} (tap another day for a range)` : `${label(from)} – ${label(to)}`;
 
   const offset = (new Date(month.y, month.m, 1).getDay() + 6) % 7;
   const days = new Date(month.y, month.m + 1, 0).getDate();
@@ -68,7 +76,8 @@ export function FilterSheet({ open, onClose }: { open: boolean; onClose: () => v
         ))}
       </div>
       <div className="calendar">
-        <p>Select date/date range</p>
+        <p>Dates</p>
+        <p className="calendar-summary" aria-live="polite">{summary}</p>
         <div className="calendar-caption">
           <strong>{MONTHS[month.m]} {month.y}</strong>
           <button aria-label="Previous month" onClick={() => shift(-1)}>‹</button>
@@ -90,9 +99,14 @@ export function FilterSheet({ open, onClose }: { open: boolean; onClose: () => v
         </div>
       </div>
       <div className="sheet-actions">
-        <button onClick={clear}>Clear Filter</button>
-        <button className="primary" onClick={apply}>Apply filter</button>
+        <button onClick={clear}>Clear all</button>
+        <button className="primary" onClick={apply} disabled={count === 0} aria-describedby="filter-count">
+          {count === 0 ? "No matches" : `Show ${count} ${count === 1 ? "match" : "matches"}`}
+        </button>
       </div>
+      <p id="filter-count" className="sheet-hint" aria-live="polite">
+        {count === 0 ? "Nothing matches this combination. Widen the dates or pick another filter." : " "}
+      </p>
     </Sheet>
   );
 }

@@ -8,7 +8,7 @@ import {
   POSITION_RATINGS, RANGES, RATED_FIXTURES, SEASON, SHIFTS, TABS, TEAM_SEASON, UPDATED, type RaceEntry, type TabId,
 } from "@/lib/data";
 import { usePrototype } from "./Provider";
-import { Delta, Img, Kit, Moment, PlayerFilter, useSwap } from "./ui";
+import { Delta, Img, Kit, Moment, Photo, PlayerFilter, useSwap } from "./ui";
 
 /* ---------- helpers ---------- */
 
@@ -484,8 +484,7 @@ export function Insights({ tab }: { tab: TabId }) {
   return (
     <div className="insights">
       <header className="insights-bar">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img className="ib-photo" src="/photos/pitch-aerial.jpg" alt="" />
+        <Photo className="ib-photo" src="/photos/pitch-aerial.jpg" priority />
         <Link href="/club-hub" scroll={false} aria-label="Back to Club Hub" className="ib-back"><Img src="back.svg" w={15.5} h={11.5} /></Link>
         <div className="ib-title">
           <span className="ib-crest"><Img src="logo-sturm.png" size={30} /></span>
