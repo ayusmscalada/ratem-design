@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { CLUB, MANAGER, SQUAD, type Fixture, type Rating } from "@/lib/data";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { CLUB, MANAGER, SQUAD, fansUnlocked, type Fixture, type Rating } from "@/lib/data";
+import { fanMatchFor, shortLabel } from "@/lib/fanMatch";
+import { useJournalMatches } from "./Journal";
 import { usePrototype } from "./Provider";
-import { Img, Jersey, RatingPill, TeamLogo } from "./ui";
+import { Img, Kit, PendingPill, RatingPill, TeamLogo } from "./ui";
 
-export type RatingsSheet = { mode: "all" | "top" | "lowest"; scope: "season" | "match"; title?: string; who?: "you" | "fan" };
+export type RatingsSheet = { mode: "all" | "top" | "lowest"; scope: "season" | "match"; title?: string };
 
 const LINEUP = [[0], [1, 2], [3, 4], [5], [6, 7], [8, 9], [10]];
 const SHORT = ["Alisson", "Trent", "Van Dijk", "Konaté", "Robertson", "Mac Allister", "Gravenberch", "Szoboszlai", "Salah", "Núñez", "Díaz"];
@@ -26,7 +29,7 @@ function teamRow(f: Fixture, side: "home" | "away") {
   );
 }
 
-/** W / D / L from the user's club's point of view. Only for finished matches. */
+/** W / D / L from the club's point of view. Only for finished matches. */
 export function result(f: Fixture): "W" | "D" | "L" | null {
   if (f.status === "live" || f.homeScore === null || f.awayScore === null) return null;
   const us = f.home === CLUB ? f.homeScore : f.awayScore;
@@ -34,47 +37,38 @@ export function result(f: Fixture): "W" | "D" | "L" | null {
   return us > them ? "W" : us < them ? "L" : "D";
 }
 
-function XsRating({ kind, value }: { kind: "you" | "fan"; value: string }) {
+function FanXs({ value }: { value: string }) {
   return (
-    <span className="player-side">
-      <span className={`xs-pill ${kind}`}>
-        <Img src={kind === "you" ? "star-xs-you.svg" : "star-xs-fan.svg"} w={8} h={7.5} />
-        {value}
-      </span>
-      <span className={`xs-pill arrow ${kind}`}>
-        <Img src={kind === "you" ? "down-you.svg" : "down-fan.svg"} size={12} />
-      </span>
+    <span className="xs-pill fan">
+      <Img src="star-xs-fan.svg" w={8} h={7.5} />
+      {value}
     </span>
   );
 }
 
-function PlayerCard({ index, rated }: { index: number; rated: boolean }) {
+/** Line-up player: the RATEM kit with his number, his name, and the fans' rating. */
+function PlayerCard({ index }: { index: number }) {
   const fan = (6.4 + ((index * 7) % 19) / 10).toFixed(1);
-  const you = (6.1 + ((index * 5) % 23) / 10).toFixed(1);
   return (
     <div className="player-card">
-      {rated && <XsRating kind="you" value={you} />}
-      <span className="player-info">
-        <Jersey small initial={SHORT[index][0]} no={NUMBERS[index]} />
-        <span className="player-name">{SHORT[index]}</span>
-      </span>
-      <XsRating kind="fan" value={fan} />
+      <Kit no={NUMBERS[index]} size={34} keeper={index === 0} />
+      <span className="player-name">{SHORT[index]}</span>
+      <FanXs value={fan} />
     </div>
   );
 }
 
-function Lineup({ rated }: { rated: boolean }) {
+function Lineup() {
   return (
     <>
       <div className="manager-row">
-        {rated && <span className="tiny-rating you"><Img src="star-xs-you.svg" w={8} h={7.5} />{MANAGER.you.toFixed(1)}</span>}
         <span className="manager-name"><Img src="tie-xs.svg" w={3.2} h={7.8} />{MANAGER.name}</span>
         <span className="tiny-rating fan"><Img src="star-xs-fan.svg" w={8} h={7.5} />{MANAGER.fan.toFixed(1)}</span>
       </div>
       <div className="pitch">
         {LINEUP.map((row, i) => (
           <div className={`pitch-row${row.length === 1 ? " solo" : ""}`} key={i}>
-            {row.map((p) => <PlayerCard key={p} index={p} rated={rated} />)}
+            {row.map((p) => <PlayerCard key={p} index={p} />)}
           </div>
         ))}
       </div>
@@ -85,7 +79,6 @@ function Lineup({ rated }: { rated: boolean }) {
             <div className="bench-player" key={name}>
               <span className="bench-name">{name}</span>
               <span className="bench-ratings">
-                {rated && <span className="tiny-rating you"><Img src="star-xs-you.svg" w={8} h={7.5} />{(6.6 + i / 10).toFixed(1)}</span>}
                 <span className="tiny-rating fan"><Img src="star-xs-fan.svg" w={8} h={7.5} />{(6.9 + i / 20).toFixed(1)}</span>
               </span>
             </div>
@@ -96,7 +89,7 @@ function Lineup({ rated }: { rated: boolean }) {
   );
 }
 
-function Stat({ kind, label, icon, onClick }: { kind: "you" | "fan" | "plain"; label: string; icon: "cup" | "down" | "up"; onClick?: () => void }) {
+function Stat({ kind, label, icon, onClick }: { kind: "fan" | "plain"; label: string; icon: "cup" | "down" | "up"; onClick?: () => void }) {
   const file = kind === "plain" ? `${icon}-white.svg` : `${icon}-${kind}.svg`;
   const body = (
     <>
@@ -113,41 +106,13 @@ function short(r: Rating) {
   return `${first[0]}. ${rest.join(" ").split("-").pop()}`;
 }
 
-function Comment({ text }: { text: string }) {
-  const { showToast } = usePrototype();
-  const [more, setMore] = useState(false);
-  const [vote, setVote] = useState<"up" | "down" | null>(null);
-  const toggle = (v: "up" | "down") => setVote((c) => (c === v ? null : v));
-  return (
-    <div className="comment">
-      <p>
-        <span className={more ? "" : "clamp"}>{text}</span>
-        <button onClick={() => setMore(!more)}>{more ? "See Less" : "See More"}</button>
-      </p>
-      <button className={`vote${vote === "up" ? " on" : ""}`} aria-pressed={vote === "up"} aria-label="Like" onClick={() => toggle("up")}>
-        <Img src="like.svg" size={17.6} />
-        {66 + (vote === "up" ? 1 : 0)}
-      </button>
-      <button className={`vote${vote === "down" ? " on" : ""}`} aria-pressed={vote === "down"} aria-label="Dislike" onClick={() => toggle("down")}>
-        <Img src="dislike.svg" size={17.6} />
-        {66 + (vote === "down" ? 1 : 0)}
-      </button>
-      <button className="vote" aria-label="More options" onClick={() => showToast("Comment options are part of Phase 1.")}>
-        <Img src="more.svg" size={24} style={{ transform: "rotate(-90deg)" }} />
-      </button>
-    </div>
-  );
-}
+type Badge = { label: string; tone: "live" | "open" | "muted" };
 
-type Badge = { label: string; tone: "live" | "open" | "done" | "next" | "muted" };
-
-/** One status vocabulary for every fixture, always text plus colour. */
+/** One status vocabulary for every match, always text plus colour. Only live or played matches exist. */
 export function fixtureBadge(f: Fixture): Badge {
   switch (f.status) {
-    case "upcoming": return { label: "Upcoming", tone: "next" };
     case "live": return { label: `Live ${f.minute ?? ""}`.trim(), tone: "live" };
     case "open": return { label: "Rating open", tone: "open" };
-    case "rated": return { label: "Rated", tone: "done" };
     case "closed": return { label: "Full time", tone: "muted" };
     case "awaiting": return { label: "Result pending", tone: "muted" };
   }
@@ -158,53 +123,72 @@ export function StatusBadge({ fixture }: { fixture: Fixture }) {
   return (
     <span className={`badge ${b.tone}`}>
       {b.tone === "live" && <i className="live-dot" aria-hidden />}
-      {b.tone === "done" && <span aria-hidden>✓</span>}
       {b.label}
     </span>
   );
 }
 
+/**
+ * While the window is open, the fans' numbers for this match keep updating in real time as more
+ * fans rate (Warren + Michel, 4 Nov). The prototype only simulates the growing count.
+ */
+function useLiveFans(base: number | undefined, live: boolean) {
+  const [extra, setExtra] = useState(0);
+  useEffect(() => {
+    if (!live || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const t = setInterval(() => setExtra((n) => n + 1 + Math.floor(Math.random() * 3)), 4000);
+    return () => clearInterval(t);
+  }, [live]);
+  return base === undefined ? undefined : base + (live ? extra : 0);
+}
+
+/** Only an open match has an action: rate it to see what the fans think of this match. */
 function ActionArea({ fixture }: { fixture: Fixture }) {
   const { rateFixture } = usePrototype();
-  switch (fixture.status) {
-    case "upcoming":
-      return (
-        <div className="fx-kickoff">
-          <strong className="num">{fixture.kickoff}</strong>
-          <small>Kickoff</small>
-        </div>
-      );
-    case "open":
-      // Full-width row under the score, so the action never competes with the teams for space.
-      return (
-        <div className="fx-action">
-          <span>Rating closes in <b className="num">{fixture.remaining}</b></span>
-          <button className="btn primary" onClick={() => rateFixture(fixture.id)}>Rate now</button>
-        </div>
-      );
-    default:
-      return null;
+  if (fixture.status !== "open") return null;
+  if (fixture.youRated) {
+    return (
+      <div className="fx-action done">
+        <span className="fx-live"><i className="live-dot" aria-hidden />Updating live as fans rate · final in <b className="num">{fixture.remaining}</b></span>
+        <Link className="fx-insights" href={`/my-journal/match/${fixture.id}`} scroll={false}>Your match insights<Img src="chevron-right.svg" size={14} /></Link>
+      </div>
+    );
   }
+  // Full-width row under the score, so the action never competes with the teams for space.
+  return (
+    <div className="fx-action">
+      <span className="fx-prompt">Rate the match to see how fans rated it</span>
+      <button className="btn primary" onClick={() => rateFixture(fixture.id)}>Rate now</button>
+    </div>
+  );
 }
 
 function footnote(f: Fixture) {
   switch (f.status) {
-    case "upcoming": return "Rating opens at full time.";
     case "live": return "Rating opens at full time.";
-    case "closed": return "Rating window closed.";
+    case "open": return f.youRated ? null : `${f.fans} fans have rated so far.`;
+    case "closed": return "Final fan rating.";
     case "awaiting": return "Score not confirmed yet. Rating opens once the result is confirmed.";
-    default: return null;
   }
 }
 
 export function MatchCard({ fixture, focused, openRatings }: { fixture: Fixture; focused: boolean; openRatings: (s: RatingsSheet) => void }) {
-  const { showToast } = usePrototype();
   const [open, setOpen] = useState(false);
-  const rated = fixture.status === "rated";
-  const hasDetails = fixture.status === "open" || fixture.status === "rated" || fixture.status === "closed";
+  const unlocked = fansUnlocked(fixture);
+  const pending = fixture.status === "open" && !unlocked;
   const fixtureName = `${fixture.home} vs ${fixture.away}`;
   const r = result(fixture);
   const note = footnote(fixture);
+  // Shown once the user has rated (or the window closed); keeps updating until the 48h are up.
+  const live = fixture.status === "open" && unlocked;
+  const fans = useLiveFans(fixture.fans, live);
+  // Finished matches: the fans' story of the match, for anyone, rated or not (12 Nov).
+  const fm = fanMatchFor(fixture.id);
+  // Rated: the way in is your own insights first; the fans' view waits at the end of them (Michel, 12 Nov).
+  // Signed out = nothing rated, so they get the fans' view as their main view.
+  const { edges } = usePrototype();
+  const journal = useJournalMatches();
+  const rated = edges.account !== "out" && journal.some((m) => m.id === fixture.id);
 
   return (
     <article id={`fixture-${fixture.id}`} className={`fixture is-${fixture.status}${focused ? " focused" : ""}`} aria-label={`${fixtureName}, ${fixture.dateLabel}, ${fixtureBadge(fixture).label}`}>
@@ -212,57 +196,57 @@ export function MatchCard({ fixture, focused, openRatings }: { fixture: Fixture;
         <span className="fx-when"><b>{fixture.competition}</b><span>{fixture.dateLabel}, {fixture.kickoff}</span></span>
         {r && fixture.status !== "awaiting" && <em className={`res ${r}`} title={{ W: "Win", D: "Draw", L: "Loss" }[r]}>{r}<span className="sr-only">{{ W: " win", D: " draw", L: " loss" }[r]}</span></em>}
         <StatusBadge fixture={fixture} />
-        {rated && (
-          <button className="icon-btn" aria-label="Share your rating" onClick={() => showToast("Sharing is part of Phase 1.")}>
-            <Img src="share.svg" size={16} />
-          </button>
-        )}
       </header>
       <div className="fixture-main">
         <div className="team-info">{teamRow(fixture, "home")}{teamRow(fixture, "away")}</div>
-        {fixture.status !== "open" && <ActionArea fixture={fixture} />}
         <div className="fixture-ratings">
-          {rated && fixture.youRating && <RatingPill kind="you" value={fixture.youRating} />}
-          {fixture.fanRating && <RatingPill kind="fan" value={fixture.fanRating} />}
+          {unlocked && fixture.fanRating !== undefined && <RatingPill value={fixture.fanRating} />}
+          {live && <span className="pill-live">Live</span>}
+          {pending && <PendingPill fans={fixture.fans} />}
         </div>
       </div>
       <p className="fx-venue"><Img src="stadium.svg" w={13} h={13} /><span>{fixture.venue}{note && <> · {note}</>}</span></p>
-      {fixture.status === "open" && <ActionArea fixture={fixture} />}
+      <ActionArea fixture={fixture} />
 
-      {rated && (
-        <>
-          <div className="summary-table" role="table" aria-label="Match picks, you and fans">
-            <span role="columnheader" />
-            <span className="stat plain-head" role="columnheader"><Img src="cup-white.svg" size={12} />MOTM</span>
-            <span className="stat plain-head" role="columnheader"><Img src="down-white.svg" size={12} />Lowest</span>
-            <span className="stat plain-head" role="columnheader"><Img src="up-white.svg" size={12} />Highest</span>
-            <span className="row-label you" role="rowheader">You</span>
-            <Stat kind="you" icon="cup" label={short(SQUAD[0])} />
-            <Stat kind="you" icon="down" label={short(SQUAD[5])} onClick={() => openRatings({ mode: "lowest", scope: "match", title: fixtureName, who: "you" })} />
-            <Stat kind="you" icon="up" label={short(SQUAD[0])} onClick={() => openRatings({ mode: "top", scope: "match", title: fixtureName, who: "you" })} />
-            <span className="row-label fan" role="rowheader">Fans</span>
-            <Stat kind="fan" icon="cup" label={short(SQUAD[1])} />
-            <Stat kind="fan" icon="down" label={short(SQUAD[5])} onClick={() => openRatings({ mode: "lowest", scope: "match", title: fixtureName, who: "fan" })} />
-            <Stat kind="fan" icon="up" label={short(SQUAD[1])} onClick={() => openRatings({ mode: "top", scope: "match", title: fixtureName, who: "fan" })} />
-          </div>
-          {fixture.comment && <Comment text={fixture.comment} />}
-        </>
+      {unlocked && (
+        <div className="summary-table fans-only" role="table" aria-label="Fans' picks for this match">
+          <span className="stat plain-head" role="columnheader"><Img src="cup-white.svg" size={12} />Fans&apos; MOTM</span>
+          <span className="stat plain-head" role="columnheader"><Img src="down-white.svg" size={12} />Lowest</span>
+          <span className="stat plain-head" role="columnheader"><Img src="up-white.svg" size={12} />Highest</span>
+          <Stat kind="fan" icon="cup" label={fm ? shortLabel(fm.split[0].short) : short(SQUAD[1])} />
+          <Stat kind="fan" icon="down" label={fm ? shortLabel(fm.low.short) : short(SQUAD[5])} onClick={() => openRatings({ mode: "lowest", scope: "match", title: fixtureName })} />
+          <Stat kind="fan" icon="up" label={fm ? shortLabel(fm.high.short) : short(SQUAD[1])} onClick={() => openRatings({ mode: "top", scope: "match", title: fixtureName })} />
+        </div>
       )}
 
-      {hasDetails && (
+      {fm && (rated ? (
+        <Link className="fx-fan-insights mine" href={`/my-journal/match/${fixture.id}`} scroll={false}>
+          <Img src="cup-you.svg" size={14} />
+          <span className="fans-label">Your match insights<small>Your patterns, then you vs the fans · the fans&apos; view at the end</small></span>
+          <Img src="chevron-right.svg" size={14} />
+        </Link>
+      ) : (
+        <Link className="fx-fan-insights" href={`/club-hub/match/${fixture.id}`} scroll={false}>
+          <Img src="cup-fan.svg" size={14} />
+          <span className="fans-label">Fan match insights<small>MOTM vote, most divisive, highest and lowest</small></span>
+          <Img src="chevron-right.svg" size={14} />
+        </Link>
+      ))}
+
+      {unlocked && (
         <button className="fans-think" aria-expanded={open} aria-controls={`lineup-${fixture.id}`} onClick={() => setOpen(!open)}>
           <span className="fan-avatars" aria-hidden>
             <Img src="fan-1.png" size={16} />
             <Img src="fan-2.png" size={16} />
             <Img src="fan-3.png" size={16} />
           </span>
-          <span className="fans-label">Line-up &amp; player ratings<small>{fixture.fans} fans rated</small></span>
+          <span className="fans-label">Line-up &amp; fan player ratings<small>{fans} fans rated{live ? " so far" : ""}</small></span>
           <span className="lineup-toggle">{open ? "Hide" : "Show"}<Img src="dropdown.svg" size={12} style={{ transform: open ? "rotate(180deg)" : undefined }} /></span>
         </button>
       )}
-      {hasDetails && (
+      {unlocked && (
         <div id={`lineup-${fixture.id}`} className={`expand${open ? " open" : ""}`}>
-          <div>{open && <Lineup rated={rated} />}</div>
+          <div>{open && <Lineup />}</div>
         </div>
       )}
     </article>

@@ -8,8 +8,8 @@ const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
 const barlow = Barlow_Condensed({ variable: "--font-display", subsets: ["latin"], weight: "700" });
 
 export const metadata: Metadata = {
-  title: "RATEM Club Hub",
-  description: "Frontend prototype of the RATEM Club Hub",
+  title: "RATEM Club Hub & My Journal",
+  description: "Frontend prototype of the RATEM Club Hub and My Journal",
 };
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };

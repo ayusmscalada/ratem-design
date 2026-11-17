@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   CLUB, DIVISIVE, FAN_MEDIAN, FAN_MOOD, MANAGER_SEASON, MANAGER_TREND, MOOD_FANS, MOTM_RACE, MOTM_RACE_TIE,
-  POSITION_RATINGS, RANGES, RATED_FIXTURES, SEASON, SHIFTS, TABS, TEAM_SEASON, UPDATED, type RaceEntry, type TabId,
+  POSITION_RATINGS, RANGES, RATED_FIXTURES, SEASON, SHIFTS, TABS, TEAM_SEASON, UPDATED, nextUpdate, type RaceEntry, type TabId,
 } from "@/lib/data";
 import { usePrototype } from "./Provider";
-import { Delta, Img, Kit, Moment, Photo, PlayerFilter, useSwap } from "./ui";
+import { Delta, Img, Kit, Moment, Photo, PlayerFilter, TeamLogo, useSwap } from "./ui";
 
 /* ---------- helpers ---------- */
 
@@ -25,7 +25,7 @@ export function useRace() {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-function Crown({ size = 26 }: { size?: number }) {
+export function Crown({ size = 26 }: { size?: number }) {
   return (
     <svg className="crown" width={size} height={size * 0.7} viewBox="0 0 40 28" aria-hidden>
       <path d="M3 8 12 16 20 3 28 16 37 8 34 26H6Z" fill="#ffd34d" stroke="#b8860b" strokeWidth="1.5" strokeLinejoin="round" />
@@ -33,7 +33,7 @@ function Crown({ size = 26 }: { size?: number }) {
   );
 }
 
-function Skeleton({ rows = 3 }: { rows?: number }) {
+export function Skeleton({ rows = 3 }: { rows?: number }) {
   return (
     <div className="skeleton" aria-busy="true" aria-label="Updating">
       {Array.from({ length: rows }, (_, i) => <span key={i} style={{ width: `${90 - i * 18}%` }} />)}
@@ -117,8 +117,8 @@ function FanbaseMood() {
   const { edges } = usePrototype();
   if (edges.mood === "none") {
     return (
-      <Moment id="mood" accent="green" question="How do fans feel about the team right now?" title="Fanbase Mood">
-        <div className="empty-state"><strong>No mood yet</strong><span>Fanbase Mood appears once the first fixture&apos;s rating window closes.</span></div>
+      <Moment id="mood" accent="sky" question="How do fans feel about the team right now?" title="Fanbase Mood">
+        <div className="empty-state"><strong>No mood yet</strong><span>Fanbase Mood appears once the first match&apos;s rating window closes.</span></div>
       </Moment>
     );
   }
@@ -126,7 +126,7 @@ function FanbaseMood() {
   const diff = latest.value - FAN_MEDIAN;
   const y = (v: number) => 100 - ((v - 5) / 4) * 100;
   return (
-    <Moment id="mood" accent="green" isNew question="How do fans feel about the team right now?" title="Fanbase Mood"
+    <Moment id="mood" accent="sky" isNew question="How do fans feel about the team right now?" title="Fanbase Mood"
       context={`After ${latest.venue} ${latest.opp} ${latest.score}, ${latest.date} · ${MOOD_FANS} fans rated`}
       note={<>Squad rating is the average of every fan player rating in that fixture. The fans&apos; median covers {RATED_FIXTURES} rated fixtures.</>}>
       <div className="mood-hero">
@@ -155,7 +155,7 @@ function FanbaseMood() {
 }
 
 function FanConfidenceShift() {
-  const { playerFilter, setPlayerFilter } = usePrototype();
+  const { playerFilter, setPlayerFilter, edges, setEdges } = usePrototype();
   const value = playerFilter.shift ?? "all";
   const { shown, loading } = useSwap(value);
   const sorted = [...SHIFTS].sort((a, b) => Math.abs(b.recent - b.season) - Math.abs(a.recent - a.season));
@@ -164,18 +164,18 @@ function FanConfidenceShift() {
   const lead = sorted[0];
 
   return (
-    <Moment id="shift" accent="violet" isNew question="Whose fan ratings have moved most lately?" title="Fan Confidence Shift"
-      context={player ? `${player.name} · last 5 fixtures vs season` : "Last 5 fixtures vs season average · fan ratings"}
+    <Moment id="shift" accent="violet" isNew failed={edges.partial ? { onRetry: () => setEdges({ partial: false }) } : undefined} question="Which players are fans warming to, or cooling on?" title="Who's Up, Who's Down"
+      context={player ? `${player.name} · his last 5 matches vs his whole season` : "Fan ratings in the last 5 matches, compared with the whole season"}
       filter={<PlayerFilter label="Player" options={options} value={value} onChange={(id) => setPlayerFilter("shift", id)} />}
-      note={<>Shift = fans&apos; average over the last 5 fixtures minus their season average. Players need 8+ fan-rated appearances.</>}>
+      note={<>We compare each player&apos;s average fan rating in the last 5 matches with his season average. Players need 8+ fan-rated matches.</>}>
       {loading ? <Skeleton rows={4} /> : player ? (
         <div className="swap-in">
           <div className="shift-hero">
-            <Kit no={player.no} size={60} />
+            <Kit no={player.no} size={60} keeper={player.pos === "GK"} />
             <div className="shift-nums">
-              <div><small>Season</small><strong className="num">{player.season.toFixed(1)}</strong></div>
+              <div><small>All season</small><strong className="num">{player.season.toFixed(1)}</strong></div>
               <span className="shift-arrow" aria-hidden>→</span>
-              <div><small>Last 5</small><strong className="num">{player.recent.toFixed(1)}</strong></div>
+              <div><small>Lately</small><strong className="num">{player.recent.toFixed(1)}</strong></div>
               <Delta value={player.recent - player.season} className="big" />
             </div>
           </div>
@@ -192,14 +192,15 @@ function FanConfidenceShift() {
       ) : (
         <div className="swap-in">
           <div className="answer">
-            <strong className="answer-big">{lead.short}, <Delta value={lead.recent - lead.season} /></strong>
-            <span className="answer-line">Biggest shift: {lead.season.toFixed(1)} season → {lead.recent.toFixed(1)} last 5</span>
+            <strong className="answer-big">Fans have {lead.recent < lead.season ? "cooled on" : "warmed to"} {lead.short}</strong>
+            <span className="answer-line">Rated <b className="num">{lead.recent.toFixed(1)}</b> lately, {lead.recent < lead.season ? "down" : "up"} from <b className="num">{lead.season.toFixed(1)}</b> across the season</span>
           </div>
+          <p className="movers-key"><span>All season → lately</span></p>
           <ul className="movers">
             {sorted.map((s) => (
               <li key={s.name}>
-                <button onClick={() => setPlayerFilter("shift", s.short)} aria-label={`${s.name}: season ${s.season}, last 5 ${s.recent}. Show detail`}>
-                  <Kit no={s.no} size={28} />
+                <button onClick={() => setPlayerFilter("shift", s.short)} aria-label={`${s.name}: ${s.season} all season, ${s.recent} lately. Show detail`}>
+                  <Kit no={s.no} size={28} keeper={s.pos === "GK"} />
                   <span className="mv-name">{s.short}</span>
                   <span className="mv-from num">{s.season.toFixed(1)} → {s.recent.toFixed(1)}</span>
                   <Delta value={s.recent - s.season} />
@@ -221,7 +222,7 @@ function MostDivisive() {
     <Moment id="divisive" accent="coral" question="Which player split the fans most?" title="Most Divisive Player" context={`${d.fixture}, ${d.date} · ${d.fans} fans rated him`}
       note={<>Divisive = most fans at both ends of the scale (1–3 and 8–10) for one player in one fixture this season.</>}>
       <div className="div-hero">
-        <Kit no={d.no} size={64} />
+        <Kit no={d.no} size={64} keeper={d.pos === "GK"} />
         <div>
           <strong className="answer-big">{d.short}</strong>
           <span className="answer-line">Median rating <b className="num">{d.median.toFixed(1)}</b>, but few fans landed there</span>
@@ -245,23 +246,40 @@ function MostDivisive() {
 
 /* ---------- Players ---------- */
 
+/** Small supporting icons per position group (Michel, 5 Nov): subtle line art, the rating stays the focus. */
+const POS_ICONS: Record<string, ReactNode> = {
+  // a boot striking a ball
+  Attack: (<><path d="M2.5 7h4.6l1.6 2.6 5.3 1.4c2.1.6 3.5 1.7 3.5 3.4V16H2.5Z" /><path d="M5 16v1.8M9.2 16v1.8M13.6 16v1.8M9.6 10.4l-.9 1.5M11.8 11l-.8 1.4" /><circle cx="20.6" cy="11" r="2.4" /></>),
+  // connected nodes: a passing network
+  Midfield: (<><path d="M5.5 6 12 12l6.5-6M12 12l-6 6.5M12 12l6 6.5M5.5 6h13" /><circle cx="5.5" cy="6" r="2" /><circle cx="18.5" cy="6" r="2" /><circle cx="12" cy="12" r="2.2" /><circle cx="6" cy="18.5" r="2" /><circle cx="18" cy="18.5" r="2" /></>),
+  // a shield: protection and solidity
+  Defence: (<><path d="M12 2.8 19.2 5.6v5.6c0 4.6-3 8-7.2 10-4.2-2-7.2-5.4-7.2-10V5.6Z" /><path d="M12 6.6v11" /></>),
+};
+
+export function PosIcon({ label }: { label: string }) {
+  return (
+    <svg className="pos-icon" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      {POS_ICONS[label]}
+    </svg>
+  );
+}
+
 function RatingsByPosition() {
   const top = [...POSITION_RATINGS].sort((a, b) => b.fan - a.fan)[0];
   return (
-    <Moment id="position" accent="blue" question="How do you and the fans rate each part of the team?" title="Ratings by Position" context={`Season average player rating · ${SEASON} · outfield positions`}
-      note={<>Your average uses the 14 fixtures you rated. Fans&apos; average uses all {RATED_FIXTURES} rated fixtures.</>}>
+    <Moment id="position" accent="blue" question="How do fans rate each part of the team?" title="Ratings by Position" context={`Fans' season average player rating · ${SEASON} · outfield positions`}
+      note={<>Fans&apos; average across all {RATED_FIXTURES} rated matches.</>}>
       <div className="answer">
         <strong className="answer-big">Fans rate {top.label.toLowerCase()} highest</strong>
         <span className="answer-line">{top.fan.toFixed(1)} average across the season</span>
       </div>
       <div className="pos-table" role="table" aria-label="Average rating by position">
-        <div className="pos-row head" role="row"><span role="columnheader">Position</span><span role="columnheader">Fans</span><span role="columnheader">You</span><span role="columnheader">You vs fans</span></div>
+        {/* No "vs top" column: the three averages tell the story, the top group is simply highlighted (Michel, 4 Nov). */}
+        <div className="pos-row fans-only head" role="row"><span role="columnheader">Position</span><span role="columnheader">Fans</span></div>
         {POSITION_RATINGS.map((p) => (
-          <div className="pos-row" role="row" key={p.label}>
-            <span role="cell" className="pos-name">{p.label}</span>
+          <div className={`pos-row fans-only${p.label === top.label ? " is-top" : ""}`} role="row" key={p.label}>
+            <span role="cell" className="pos-name"><PosIcon label={p.label} />{p.label}{p.label === top.label && <span className="pos-top">Highest</span>}</span>
             <span role="cell" className="num pill-fan">{p.fan.toFixed(1)}</span>
-            <span role="cell" className="num pill-you">{p.you.toFixed(1)}</span>
-            <span role="cell"><Delta value={p.you - p.fan} /></span>
           </div>
         ))}
       </div>
@@ -279,14 +297,14 @@ function WidestRange() {
   const options = RANGES.map((r) => ({ id: r.short, label: r.name, short: r.short, meta: `${r.apps} apps` }));
 
   return (
-    <Moment id="range" accent="gold" question="Which player have fans rated most unevenly?" title="Widest Rating Range"
+    <Moment id="range" accent="gold" question="Which player’s ratings varied the most?" title="Widest Rating Range"
       context={shown === "all" ? `Widest spread in the squad · ${SEASON}` : `${p.name} · ${p.apps} fan-rated appearances`}
       filter={<PlayerFilter label="Player" options={options} value={value} onChange={(id) => setPlayerFilter("range", id)} />}
-      note={<>Range = the player&apos;s highest minus lowest fixture fan average. Players need 5+ fan-rated appearances.</>}>
+      note={<>Range = the difference between a player&apos;s highest and lowest fan rating this season. Players need 5+ rated appearances to qualify.</>}>
       {loading ? <Skeleton rows={3} /> : (
         <div className="swap-in">
           <div className="div-hero">
-            <Kit no={p.no} size={56} />
+            <Kit no={p.no} size={56} keeper={p.pos === "GK"} />
             <div>
               <strong className="answer-big">{p.short}</strong>
               <span className="answer-line"><b className="num">{spread.toFixed(1)}</b>-point range, {p.low.toFixed(1)} to {p.high.toFixed(1)}</span>
@@ -313,9 +331,11 @@ function WidestRange() {
 /* ---------- Matches ---------- */
 
 function SeasonExtremes() {
-  const { setFocusFixture } = usePrototype();
+  const { setFocusFixture, setFilter, setRange } = usePrototype();
   const router = useRouter();
   const open = (id: string) => {
+    setFilter("all");
+    setRange(null);
     setFocusFixture(id);
     router.push("/club-hub", { scroll: false });
   };
@@ -370,7 +390,7 @@ function TeamByResult() {
     { label: "Losses", n: edges.draws ? 2 : 4, v: 6.2, tone: "L" },
   ];
   return (
-    <Moment id="result" accent="green" question="Does the result change how fans rate the team?" title="Team Rating by Result" context={`Fan squad rating · ${RATED_FIXTURES} rated fixtures`}>
+    <Moment id="result" accent="sky" question="Does the result change how fans rate the team?" title="Team Rating by Result" context={`Fan squad rating · ${RATED_FIXTURES} rated fixtures`}>
       <div className="result-tiles">
         {rows.map((r) => (
           <div key={r.label} className={`rtile ${r.tone}`}>
@@ -408,7 +428,7 @@ function HomeAway() {
   const home = equal ? 7.7 : 7.2;
   const away = equal ? 7.7 : 6.4;
   return (
-    <Moment id="venue" accent="green" question="Is the manager rated differently home and away?" title="Manager: Home vs Away" context={`Fan manager rating · ${equal ? "5 home, 7 away" : "8 home, 8 away"} fixtures`}>
+    <Moment id="venue" accent="sky" question="Is the manager rated differently home and away?" title="Manager: Home vs Away" context={`Fan manager rating · ${equal ? "5 home, 7 away" : "8 home, 8 away"} fixtures`}>
       <div className="vs-pair">
         <div><small><Img src="stadium.svg" w={16} h={16} />Home</small><strong className="num">{home.toFixed(1)}</strong></div>
         <span className="vs">vs</span>
@@ -440,7 +460,9 @@ function ManagerTrend() {
             {MANAGER_TREND.map((p) => (
               <div className="mt-col" key={p.date}>
                 <div className="mt-track"><span className={`num ${p.value >= MANAGER_SEASON ? "above" : "below"}`} style={{ top: `${y(p.value)}%` }}>{p.value.toFixed(1)}</span></div>
-                <b>{p.venue} {p.opp}</b>
+                {/* Tight chart: crest + three-letter code (Michel, 5 Nov). Roomier cards use crest + full name. */}
+                <TeamLogo name={p.opp} size={24} />
+                <b title={`${p.venue} ${p.opp}`}>{p.venue} {p.code}</b>
                 <small>{p.date}</small>
               </div>
             ))}
@@ -470,6 +492,9 @@ export function Insights({ tab }: { tab: TabId }) {
   const index = TABS.findIndex((t) => t.id === tab);
   const prev = TABS[index - 1];
   const next = TABS[index + 1];
+  const { fixtures, edges } = usePrototype();
+  const archived = edges.season === "archived";
+  const nextHub = archived ? null : nextUpdate(fixtures);
 
   // Slide in from the side the fan is moving towards.
   const [dir] = useState(() => (index >= lastIndex ? "fwd" : "back"));
@@ -490,7 +515,8 @@ export function Insights({ tab }: { tab: TabId }) {
           <span className="ib-crest"><Img src="logo-sturm.png" size={30} /></span>
           <div>
             <h1>Insights</h1>
-            <p>{CLUB} · {SEASON} · {UPDATED.label}, {UPDATED.date}</p>
+            <p>{CLUB} · {SEASON} · {archived ? "Season ended · final" : `${UPDATED.label}, ${UPDATED.date}`}</p>
+            {nextHub && <p className="next-update">Updates when rating closes in <b className="num">{nextHub}</b></p>}
           </div>
         </div>
       </header>

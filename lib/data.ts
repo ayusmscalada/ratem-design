@@ -1,8 +1,13 @@
 // Sample data for the Club Hub prototype. Every figure is illustrative and needs
 // the approved metric contract before build (handbook §4.1, VALIDATE).
 
-export type FixtureStatus = "upcoming" | "live" | "open" | "rated" | "closed" | "awaiting";
-export type Rating = { name: string; pos: string; initial: string; no: number; you: number; fan: number; youMotm: number; fanMotm: number };
+/**
+ * RATEM only shows matches that are live or have been played (client decision, 4 Nov).
+ * There is no "upcoming" status anywhere in the app.
+ */
+export type FixtureStatus = "live" | "open" | "closed" | "awaiting";
+/** Fan data only. Club Hub never carries the user's own ratings (they live in My Journal). */
+export type Rating = { name: string; pos: string; initial: string; no: number; fan: number; fanMotm: number };
 
 export type Fixture = {
   id: string;
@@ -20,20 +25,38 @@ export type Fixture = {
   /** Match clock for live fixtures. */
   minute?: string;
   fanRating?: number;
-  youRating?: number;
   remaining?: string;
   fans?: number;
-  comment?: string;
+  /**
+   * Whether this user has submitted a rating. Used only to reveal that match's fan data while
+   * the window is open (rating-visibility rule). The user's own score is never shown in Club Hub.
+   */
+  youRated?: boolean;
 };
 
 export const CLUB = "Sturm Graz";
 export const SEASON = "2025/26";
 export const RATED_FIXTURES = 16;
 /** Data freshness, not "live": the hub refreshes once a fixture's rating window closes. */
+/**
+ * Club Hub rule (Michel, 4 Nov): Club Hub insights are collective fan opinion, so they only
+ * update once a match's 48-hour rating window closes. The MOTM race, Fanbase Mood, ratings etc.
+ * stay as they were before that match until then (nothing leaks early). My Journal is the user's
+ * own data and can update the moment they rate.
+ */
 export const UPDATED = { label: "Updated after vs Inter", date: "1 Mar" };
 
-/** The club's kit, used for jerseys so they match the user's club. */
-export const KIT = { base: "#111111", stripe: "#ffffff", number: "#ffffff", trim: "#ffffff" };
+/** While a rating window is open, Club Hub says when its next update lands. */
+export function nextUpdate(fixtures: Fixture[]) {
+  return fixtures.find((f) => f.status === "open")?.remaining ?? null;
+}
+
+/**
+ * The RATEM kit (client decision, 4 Nov): one branded kit for every player, whatever the club,
+ * so RATEM never borrows another club's identity. Only the number changes per player.
+ * The club itself is shown by its crest and name next to the kit.
+ */
+export const KIT = { base: "#0b3fd6", sky: "#1fb4ff", deep: "#061a6b", centre: "#ffffff", number: "#ffffff", /** Thin near-black outline for clear kit numbers (Michel, 12 Nov). */ outline: "#02040f", /** Goalkeeper: solid RATEM blue, no pattern. */ keeper: "#074aff" };
 
 export const LOGOS: Record<string, string> = {
   "Sturm Graz": "/figma/logo-sturm.png",
@@ -41,25 +64,24 @@ export const LOGOS: Record<string, string> = {
 };
 
 export const SQUAD: Rating[] = [
-  { name: "Mohamed Salah", pos: "FWD", initial: "M", no: 11, you: 8.5, fan: 8.1, youMotm: 12, fanMotm: 33 },
-  { name: "Virgil van Dijk", pos: "DEF", initial: "V", no: 4, you: 8.1, fan: 7.8, youMotm: 7, fanMotm: 22 },
-  { name: "Alexis Mac Allister", pos: "MID", initial: "A", no: 10, you: 7.9, fan: 7.7, youMotm: 5, fanMotm: 15 },
-  { name: "Alisson Becker", pos: "GK", initial: "A", no: 1, you: 7.5, fan: 7.5, youMotm: 2, fanMotm: 6 },
-  { name: "Darwin Núñez", pos: "FWD", initial: "D", no: 9, you: 7.3, fan: 6.9, youMotm: 3, fanMotm: 3 },
-  { name: "Trent Alexander-Arnold", pos: "DEF", initial: "T", no: 66, you: 5.8, fan: 6.4, youMotm: 1, fanMotm: 2 },
+  { name: "Mohamed Salah", pos: "FWD", initial: "M", no: 11, fan: 8.1, fanMotm: 33 },
+  { name: "Virgil van Dijk", pos: "DEF", initial: "V", no: 4, fan: 7.8, fanMotm: 22 },
+  { name: "Alexis Mac Allister", pos: "MID", initial: "A", no: 10, fan: 7.7, fanMotm: 15 },
+  { name: "Alisson Becker", pos: "GK", initial: "A", no: 1, fan: 7.5, fanMotm: 6 },
+  { name: "Darwin Núñez", pos: "FWD", initial: "D", no: 9, fan: 6.9, fanMotm: 3 },
+  { name: "Trent Alexander-Arnold", pos: "DEF", initial: "T", no: 66, fan: 6.4, fanMotm: 2 },
 ];
 
-export const MANAGER: Rating = { name: "Head Coach", pos: "Manager", initial: "H", no: 0, you: 7.2, fan: 7.6, youMotm: 0, fanMotm: 0 };
+export const MANAGER: Rating = { name: "Head Coach", pos: "Manager", initial: "H", no: 0, fan: 7.6, fanMotm: 0 };
 
 /** Newest first. "Today" in the prototype is Sat 7 Mar 2026. */
 export const FIXTURES: Fixture[] = [
-  { id: "next", date: "2026-03-14", dateLabel: "Sat 14 Mar", kickoff: "17:00", competition: "Bundesliga", venue: "Merkur Arena", home: "Sturm Graz", away: "Austria Wien", homeScore: null, awayScore: null, status: "upcoming" },
   { id: "live", date: "2026-03-07", dateLabel: "Sat 7 Mar", kickoff: "18:00", competition: "Bundesliga", venue: "Red Bull Arena", home: "Red Bull Salzburg", away: "Sturm Graz", homeScore: 1, awayScore: 1, status: "live", minute: "63′" },
-  { id: "open", date: "2026-03-04", dateLabel: "Wed 4 Mar", kickoff: "20:30", competition: "Bundesliga", venue: "Allianz Stadion", home: "Rapid Wien", away: "Sturm Graz", homeScore: 0, awayScore: 2, status: "open", fanRating: 7.4, remaining: "23h 15m", fans: 666 },
-  { id: "rated", date: "2026-03-01", dateLabel: "Sun 1 Mar", kickoff: "21:00", competition: "Champions League", venue: "Merkur Arena", home: "Sturm Graz", away: "Inter", homeScore: 3, awayScore: 3, status: "rated", youRating: 7.6, fanRating: 7.2, fans: 666, comment: "Played well all over the pitch. The press won the midfield early, and the second half showed real belief from the whole squad until the final whistle." },
+  { id: "open", date: "2026-03-04", dateLabel: "Wed 4 Mar", kickoff: "20:30", competition: "Bundesliga", venue: "Allianz Stadion", home: "Rapid Wien", away: "Sturm Graz", homeScore: 0, awayScore: 2, status: "open", fanRating: 7.4, remaining: "23h 15m", fans: 666, youRated: false },
+  { id: "rated", date: "2026-03-01", dateLabel: "Sun 1 Mar", kickoff: "21:00", competition: "Champions League", venue: "Merkur Arena", home: "Sturm Graz", away: "Inter", homeScore: 3, awayScore: 3, status: "closed", fanRating: 7.2, fans: 666 },
   { id: "awaiting", date: "2026-02-24", dateLabel: "Tue 24 Feb", kickoff: "21:00", competition: "Champions League", venue: "Merkur Arena", home: "Sturm Graz", away: "Everton", homeScore: null, awayScore: null, status: "awaiting" },
   { id: "closed", date: "2026-02-18", dateLabel: "Wed 18 Feb", kickoff: "21:00", competition: "Champions League", venue: "Amex Stadium", home: "Brighton", away: "Sturm Graz", homeScore: 1, awayScore: 2, status: "closed", fanRating: 6.7, fans: 512 },
-  { id: "mci-home", date: "2026-01-12", dateLabel: "Mon 12 Jan", kickoff: "21:00", competition: "Champions League", venue: "Merkur Arena", home: "Sturm Graz", away: "Manchester City", homeScore: 4, awayScore: 1, status: "rated", youRating: 8.6, fanRating: 8.4, fans: 842, comment: "Best team performance of the season." },
+  { id: "mci-home", date: "2026-01-12", dateLabel: "Mon 12 Jan", kickoff: "21:00", competition: "Champions League", venue: "Merkur Arena", home: "Sturm Graz", away: "Manchester City", homeScore: 4, awayScore: 1, status: "closed", fanRating: 8.4, fans: 842 },
   { id: "gladbach", date: "2025-12-10", dateLabel: "Wed 10 Dec", kickoff: "18:45", competition: "Champions League", venue: "Borussia-Park", home: "Borussia Mönchengladbach", away: "Sturm Graz", homeScore: 2, awayScore: 2, status: "closed", fanRating: 6.3, fans: 588 },
   { id: "mci-away", date: "2025-11-09", dateLabel: "Sun 9 Nov", kickoff: "17:30", competition: "Champions League", venue: "Etihad Stadium", home: "Manchester City", away: "Sturm Graz", homeScore: 4, awayScore: 0, status: "closed", fanRating: 4.1, fans: 701 },
 ];
@@ -71,7 +93,27 @@ export type EdgeStates = {
   managerGap: "gap" | "equal";
   managerTrend: "many" | "one" | "none";
   draws: boolean;
+  /** Who is looking: signed in, signed out (Club Hub stays public), or an account that can't follow. */
+  account: "in" | "out" | "restricted";
+  /** Whether the next Follow / Unfollow request succeeds, to show the error path. */
+  followResult: "ok" | "fail";
+  /** Current season, or a past season whose standings are final. */
+  season: "current" | "archived";
+  /** Early in the season only a few matches have closed, so insights rest on a small sample. */
+  sample: "full" | "low";
+  /** One insight failed to load while the rest of the screen is fine. */
+  partial: boolean;
+  /** My Journal history: a full season, or a new fan with only 2 rated matches. */
+  journal: "full" | "new";
+  /** Premium previews: hidden for the free launch, shown to review how Premium will be teased. */
+  premium: boolean;
 };
+
+/** Low-sample example: early season, only this many rating windows have closed. */
+export const LOW_SAMPLE_MATCHES = 3;
+
+/** Follow state machine (handbook §Follow). Following never promises notifications. */
+export type FollowState = "not_following" | "pending_follow" | "following" | "pending_unfollow";
 
 /** Insight tabs are grouped by the fan question they answer. */
 export const TABS = [
@@ -107,7 +149,7 @@ export const FAN_MOOD: MoodFixture[] = [
 ];
 export const MOOD_FANS = 666;
 
-/** Fan Confidence Shift: last 5 fixtures' fan average against the season fan average. */
+/** "Who's Up, Who's Down" (was Fan Confidence Shift): fans' average over the last 5 matches vs their season average. */
 export type Shift = { name: string; short: string; pos: string; no: number; season: number; recent: number; ratings: number[] };
 export const SHIFTS: Shift[] = [
   { name: "Darwin Núñez", short: "Núñez", pos: "FWD", no: 9, season: 6.9, recent: 6.0, ratings: [6.8, 6.1, 5.4, 6.2, 5.5] },
@@ -138,9 +180,9 @@ export const DIVISIVE = {
 
 /** Ratings by Position. Goalkeeper is excluded from this grouping by product decision. */
 export const POSITION_RATINGS = [
-  { label: "Attack", fan: 7.1, you: 7.6 },
-  { label: "Midfield", fan: 7.0, you: 7.4 },
-  { label: "Defence", fan: 7.3, you: 6.9 },
+  { label: "Attack", fan: 7.1 },
+  { label: "Midfield", fan: 7.0 },
+  { label: "Defence", fan: 7.3 },
 ];
 
 /** Widest Season Rating Range, per player. Eligible = at least 5 fan-rated appearances. */
@@ -153,11 +195,21 @@ export const RANGES: RangeEntry[] = [
 ];
 
 export const MANAGER_TREND = [
-  { opp: "Man City", venue: "@", date: "9 Nov", value: 6.8 },
-  { opp: "Chelsea", venue: "vs", date: "24 Jan", value: 6.8 },
-  { opp: "Arsenal", venue: "@", date: "31 Jan", value: 6.1 },
-  { opp: "Brighton", venue: "@", date: "18 Feb", value: 5.7 },
-  { opp: "Inter", venue: "vs", date: "1 Mar", value: 5.7 },
+  { opp: "Man City", code: "MCI", venue: "@", date: "9 Nov", value: 6.8 },
+  { opp: "Chelsea", code: "CHE", venue: "vs", date: "24 Jan", value: 6.8 },
+  { opp: "Arsenal", code: "ARS", venue: "@", date: "31 Jan", value: 6.1 },
+  { opp: "Brighton", code: "BHA", venue: "@", date: "18 Feb", value: 5.7 },
+  { opp: "Inter", code: "INT", venue: "vs", date: "1 Mar", value: 5.7 },
 ];
 export const MANAGER_SEASON = 6.4;
 export const TEAM_SEASON = 7.1;
+
+/**
+ * Rating visibility (Michel, 4 Nov): only the data for that one match waits, until this user
+ * rates it OR its rating window closes. Everything else in Club Hub (MOTM race, insights,
+ * season ratings) is public whether or not the user has matches to rate. The count of fans
+ * who have rated is always fine to show. Not framed as a lock: it isn't a premium feature.
+ */
+export function fansUnlocked(f: Fixture) {
+  return f.status === "closed" || (f.status === "open" && Boolean(f.youRated));
+}

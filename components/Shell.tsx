@@ -4,8 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { usePrototype } from "./Provider";
-import { Img } from "./ui";
+import { Img, NavGlyph } from "./ui";
 import { TABS } from "@/lib/data";
+import { JOURNAL_TABS } from "@/lib/journal";
 
 function ReviewPanel() {
   const { edges, setEdges } = usePrototype();
@@ -13,15 +14,43 @@ function ReviewPanel() {
   return (
     <aside className="review">
       <p className="review-eyebrow">RATEM prototype</p>
-      <h1>Club Hub</h1>
+      <h1>Club Hub &amp; My Journal</h1>
       <p className="review-note">Frontend only, using sample data. These controls sit outside the app.</p>
       <h2>Screens</h2>
       <nav>
         <Link href="/club-hub" scroll={false} className={pathname === "/club-hub" ? "on" : ""}>Hub</Link>
         {TABS.map((t) => (
-          <Link key={t.id} href={`/club-hub/insights/${t.id}`} scroll={false} className={pathname.endsWith(t.id) ? "on" : ""}>{t.label}</Link>
+          <Link key={t.id} href={`/club-hub/insights/${t.id}`} scroll={false} className={pathname === `/club-hub/insights/${t.id}` ? "on" : ""}>{t.label}</Link>
         ))}
       </nav>
+      <h2>My Journal</h2>
+      <nav>
+        <Link href="/my-journal" scroll={false} className={pathname === "/my-journal" ? "on" : ""}>Journal home</Link>
+        {JOURNAL_TABS.map((t) => (
+          <Link key={t.id} href={`/my-journal/${t.id}`} scroll={false} className={pathname === `/my-journal/${t.id}` ? "on" : ""}>{t.label}</Link>
+        ))}
+        <Link href="/my-journal/match/rated" scroll={false} className={pathname === "/my-journal/match/rated" ? "on" : ""}>Match insights (vs Inter)</Link>
+        <Link href="/my-journal/match/open?reveal=1" scroll={false} className={pathname === "/my-journal/match/open" ? "on" : ""}>Rate → reveal (@ Rapid Wien)</Link>
+        <Link href="/my-journal/manager?result=W" scroll={false}>Drill-down: Wins → matches</Link>
+      </nav>
+      <h2>Fan match insights</h2>
+      <nav>
+        <Link href="/club-hub/match/gladbach" scroll={false} className={pathname === "/club-hub/match/gladbach" ? "on" : ""}>Finished match (@ Gladbach)</Link>
+      </nav>
+      <label>
+        My Journal history
+        <select value={edges.journal} onChange={(e) => setEdges({ journal: e.target.value as "full" | "new" })}>
+          <option value="full">Full season (13 rated)</option>
+          <option value="new">New fan (2 rated)</option>
+        </select>
+      </label>
+      <label>
+        Premium previews
+        <select value={edges.premium ? "on" : "off"} onChange={(e) => setEdges({ premium: e.target.value === "on" })}>
+          <option value="off">Hidden (free launch)</option>
+          <option value="on">Shown (how Premium is teased)</option>
+        </select>
+      </label>
       <h2>Data states</h2>
       <label>
         Match History
@@ -60,6 +89,44 @@ function ReviewPanel() {
           <option value="none">No fixtures</option>
         </select>
       </label>
+      <h2>Account &amp; season</h2>
+      <label>
+        Viewer
+        <select value={edges.account} onChange={(e) => setEdges({ account: e.target.value as "in" | "out" | "restricted" })}>
+          <option value="in">Signed in</option>
+          <option value="out">Signed out</option>
+          <option value="restricted">Restricted account</option>
+        </select>
+      </label>
+      <label>
+        Follow request
+        <select value={edges.followResult} onChange={(e) => setEdges({ followResult: e.target.value as "ok" | "fail" })}>
+          <option value="ok">Succeeds</option>
+          <option value="fail">Fails (connection)</option>
+        </select>
+      </label>
+      <label>
+        Season
+        <select value={edges.season} onChange={(e) => setEdges({ season: e.target.value as "current" | "archived" })}>
+          <option value="current">Current season</option>
+          <option value="archived">Season ended (archived)</option>
+        </select>
+      </label>
+      <label>
+        Sample size
+        <select value={edges.sample} onChange={(e) => setEdges({ sample: e.target.value as "full" | "low" })}>
+          <option value="full">16 rated matches</option>
+          <option value="low">Early season (3 matches)</option>
+        </select>
+      </label>
+      <label>
+        Who&apos;s Up, Who&apos;s Down
+        <select value={edges.partial ? "fail" : "ok"} onChange={(e) => setEdges({ partial: e.target.value === "fail" })}>
+          <option value="ok">Loaded</option>
+          <option value="fail">Failed (partial load)</option>
+        </select>
+      </label>
+      <h2>More data states</h2>
       <label>
         Team Rating by Result
         <select value={edges.draws ? "yes" : "no"} onChange={(e) => setEdges({ draws: e.target.value === "yes" })}>
@@ -73,21 +140,24 @@ function ReviewPanel() {
 
 function BottomNav() {
   const { showToast } = usePrototype();
-  const soon = () => showToast("Home and My Journal aren't part of this Club Hub prototype.");
+  const pathname = usePathname();
+  const journal = pathname.startsWith("/my-journal");
+  // Post-match insights are full screen: no bottom nav over the story.
+  if (pathname.startsWith("/my-journal/match") || pathname.startsWith("/club-hub/match")) return null;
   return (
     <nav className="bottom-nav" aria-label="Main">
-      <button onClick={soon}>
-        <span className="nav-icon"><span className="mask mask-home" /></span>
+      <button onClick={() => showToast("Home isn't part of this prototype.")}>
+        <span className="nav-icon"><NavGlyph name="home" /></span>
         Home
       </button>
-      <Link href="/club-hub" scroll={false} aria-current="page">
-        <span className="nav-icon active"><span className="mask mask-shield" /></span>
+      <Link href="/club-hub" scroll={false} aria-current={journal ? undefined : "page"}>
+        <span className={`nav-icon${journal ? "" : " active"}`}><NavGlyph name="shield" /></span>
         Club Hub
       </Link>
-      <button onClick={soon}>
-        <span className="nav-icon"><Img src="nav-book.svg" size={24} /></span>
+      <Link href="/my-journal" scroll={false} aria-current={journal ? "page" : undefined}>
+        <span className={`nav-icon${journal ? " active" : ""}`}><NavGlyph name="book" /></span>
         My Journal
-      </button>
+      </Link>
     </nav>
   );
 }

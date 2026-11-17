@@ -7,8 +7,8 @@ import { Img, Sheet } from "./ui";
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const CHIPS: { id: HistoryFilter; label: string }[] = [
   { id: "all", label: "All" },
-  { id: "rated", label: "Rated by you" },
-  { id: "unrated", label: "Not rated by you" },
+  { id: "Bundesliga", label: "Bundesliga" },
+  { id: "Champions League", label: "Champions League" },
 ];
 
 const iso = (y: number, m: number, d: number) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;

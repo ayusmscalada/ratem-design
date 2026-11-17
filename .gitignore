@@ -38,4 +38,7 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+
+# Claude Code session history (≈1 GB, private client chats; single files exceed GitHub's 100 MB limit)
+/.claude/sessions/
 next-env.d.ts
