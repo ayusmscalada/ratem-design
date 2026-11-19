@@ -13,6 +13,19 @@ Open http://localhost:3000. It redirects to `/club-hub`.
 
 `npm run dev` and `npm run build` use webpack because Turbopack fails on this Windows drive with a file lock error (`EBUSY`).
 
+## Deploy to Vercel
+
+The project is ready for Vercel with no extra settings: no environment variables, no database.
+
+- `vercel.json` sets the Next.js framework and the build command (`npm run build`, webpack). It also sends `X-Robots-Tag: noindex` so the client prototype stays out of search results.
+- `package.json` pins Node to `24.x` (Next.js 16 needs 20.9 or newer).
+- `.vercelignore` keeps `.claude/`, `docs/` and `client-questions/` out of CLI uploads. They aren't needed to build, and `.claude/` holds private session history.
+
+Either way works:
+
+- **Vercel CLI:** `npx vercel` for a preview, then `npx vercel --prod` for production. The first run asks you to log in and link a project.
+- **Git:** push the repo to GitHub, then in Vercel choose Add New → Project and import it. Vercel detects Next.js and deploys on every push to `main`. Pushes to other branches get preview URLs.
+
 ## Flow
 
 ```

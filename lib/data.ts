@@ -107,6 +107,10 @@ export type EdgeStates = {
   journal: "full" | "new";
   /** Premium previews: hidden for the free launch, shown to review how Premium will be teased. */
   premium: boolean;
+  /** Rare moments (after launch): the gold record card at the end of the story and the "Your records" shelf. */
+  rare: boolean;
+  /** Story card 6 (Your MOTM vs the fans): the fans' vote has two players level at the top. */
+  motmTie: boolean;
 };
 
 /** Low-sample example: early season, only this many rating windows have closed. */

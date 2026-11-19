@@ -1,0 +1,8 @@
+# Not needed to build or serve the prototype. Keeps private material and large files out of `vercel deploy` uploads.
+.claude
+docs
+client-questions
+.next
+node_modules
+*.tsbuildinfo
+.env*

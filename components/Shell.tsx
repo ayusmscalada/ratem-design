@@ -51,6 +51,13 @@ function ReviewPanel() {
           <option value="on">Shown (how Premium is teased)</option>
         </select>
       </label>
+      <label>
+        Rare moments (after launch)
+        <select value={edges.rare ? "on" : "off"} onChange={(e) => setEdges({ rare: e.target.value === "on" })}>
+          <option value="off">Hidden (launch)</option>
+          <option value="on">Shown (record card + Your records)</option>
+        </select>
+      </label>
       <h2>Data states</h2>
       <label>
         Match History
@@ -63,6 +70,13 @@ function ReviewPanel() {
       <label>
         Season MOTM Race
         <select value={edges.raceTie ? "tie" : "lead"} onChange={(e) => setEdges({ raceTie: e.target.value === "tie" })}>
+          <option value="lead">Clear leader</option>
+          <option value="tie">Tie at the top</option>
+        </select>
+      </label>
+      <label>
+        Match MOTM vote (story card 6)
+        <select value={edges.motmTie ? "tie" : "lead"} onChange={(e) => setEdges({ motmTie: e.target.value === "tie" })}>
           <option value="lead">Clear leader</option>
           <option value="tie">Tie at the top</option>
         </select>

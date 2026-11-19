@@ -2,15 +2,19 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
   AGREEMENT, ALIGNED_WITHIN, BASELINE, CLUB, JOURNAL_MATCHES, JOURNAL_TABS, MIN_MATCHES, MY_PLAYERS, MY_POSITIONS, OPEN_MATCH,
-  PLAYER_VS_FANS, RANGE_ALL, SEASON, STREAK, avg, fansManagerFor, FAN_MIN_RATINGS, kitOf, lineupFor, motmBoldest, motmByPosition, motmOutput, motmPicks, motmProfile, motmStandout, MOTM_MIN, patternOf, playerMatches, season, subsFor, type JournalMatch, type Result, type JournalTabId, type LineupRating, type MyPlayer,
+  PLAYER_VS_FANS, RANGE_ALL, SEASON, STREAK, ALL_BANDS, RATING_BANDS, STRONG_DISAGREE, STRONG_GAP, bandCounts, playerByResult, playerSeason, avg, fansManagerFor, FAN_MIN_RATINGS, kitOf, lineupFor, motmBoldest, motmByPosition, motmOutput, motmPicks, motmProfile, motmStandout, MOTM_MIN, patternOf, playerMatches, season, subsFor, type JournalMatch, type Result, type JournalTabId, type LineupRating, type MyPlayer,
+  archetype, fanDna, type DnaTrait, managerByResult, managerVsFans, motmByResult, motmByVenue, MOTM_INDEPENDENCE, PERCENTILES,
+  RARE_NAME, rareMoments, type RareRecord,
 } from "@/lib/journal";
 import { RATED_FIXTURES } from "@/lib/data";
+import { SEASON_FULL, playerTypes, seasonFromJournal, type TypeId } from "@/lib/playerTypes";
 import { Crown, PosIcon, Skeleton } from "./Insights";
+import { PicksCompare, picksFrom } from "./Picks";
 import { usePrototype } from "./Provider";
-import { Delta, Img, Kit, Moment, NavGlyph, Photo, PlayerFilter, Sheet, TeamLogo, useSwap } from "./ui";
+import { Delta, Img, Kit, Moment, NavGlyph, Photo, PlayerFilter, RecordMedal, Sheet, TeamLogo, useSwap } from "./ui";
 
 /**
  * One header photo per page, chosen for what the page is about (credits: public/photos/CREDITS.md).
@@ -170,11 +174,15 @@ function JournalRail({ matches, enough }: { matches: JournalMatch[]; enough: boo
   );
 }
 
-/** Small rating pill with a star: green = you, yellow = fans (same pattern as the line-up in Club Hub). */
-function Xs({ who, value, provisional }: { who: "you" | "fan"; value: number; provisional?: boolean }) {
+/**
+ * Small rating pill with a star: green = you, yellow = fans (same pattern as the line-up in Club Hub).
+ * On that side's MOTM the star becomes a small trophy (Michel, 16 Nov), so the pill keeps its size on the pitch.
+ */
+function Xs({ who, value, provisional, motm }: { who: "you" | "fan"; value: number; provisional?: boolean; motm?: boolean }) {
+  const side = who === "you" ? "You" : provisional ? "Fans (live)" : "Fans";
   return (
-    <span className={`xs-pill ${who}`} aria-label={`${who === "you" ? "You" : provisional ? "Fans (live)" : "Fans"}: ${f1(value)}`}>
-      <Img src={`star-xs-${who}.svg`} w={8} h={7.5} />{f1(value)}
+    <span className={`xs-pill ${who}${motm ? " motm" : ""}`} aria-label={`${side}: ${f1(value)}${motm ? `, ${who === "you" ? "your" : "the fans'"} MOTM` : ""}`}>
+      {motm ? <Img src={`cup-${who}.svg`} size={9} /> : <Img src={`star-xs-${who}.svg`} w={8} h={7.5} />}{f1(value)}
     </span>
   );
 }
@@ -221,16 +229,20 @@ function LineupCompare({ m, focus }: { m: JournalMatch; focus?: DrillFocus | nul
   const aligned = lineup.filter((p) => !isGap(p.you, p.fans)).length;
   const big = [...lineup].sort((a, b) => Math.abs(b.you - b.fans) - Math.abs(a.you - a.fans))[0];
   const fansLabel = "Fans";
+  // Headline picks first (Michel, 16 Nov): MOTM, lowest and highest, you vs the fans, before the full line-up.
+  const yourPicks = picksFrom(lineup, m.myMotm, "you");
+  const fanPicks = picksFrom(lineup, m.fanMotm, "fans");
   const row = (key: string, name: ReactNode, you: number, fans: number) => (
     <div className={`jl-tr${isGap(you, fans) ? " gap" : ""}${focus?.short === key ? " focus" : ""}`} role="row" key={key}>
       <span role="rowheader" className="jl-who">{name}</span>
-      <span role="cell"><Xs who="you" value={you} /></span>
-      <span role="cell"><Xs who="fan" value={fans} provisional={prov} /></span>
+      <span role="cell"><Xs who="you" value={you} motm={key === m.myMotm} /></span>
+      <span role="cell"><Xs who="fan" value={fans} provisional={prov} motm={key === m.fanMotm} /></span>
       <span role="cell"><Delta value={you - fans} /></span>
     </div>
   );
   return (
     <div className="jl">
+      <PicksCompare you={yourPicks} fans={fanPicks} className="jl-picks" />
       <div className="jl-top">
         <p className="jl-sum">You agreed with the fans{prov ? " so far" : ""} on <b className="num">{aligned}</b> of 11 · biggest gap <b>{big.short}</b> <Delta value={big.you - big.fans} /></p>
         <div className="jl-view" role="tablist" aria-label="Comparison view">
@@ -267,9 +279,9 @@ function LineupCompare({ m, focus }: { m: JournalMatch; focus?: DrillFocus | nul
                   const p = lineup[idx];
                   return (
                     <div role="listitem" className={`player-card jl-card${isGap(p.you, p.fans) ? " gap" : ""}${focus?.short === p.short ? " focus" : ""}`} key={p.short}>
-                      <Kit no={p.no} size={36} keeper={p.pos === "GK"} clearNo />
+                      <span className="jl-kit"><Kit no={p.no} size={40} keeper={p.pos === "GK"} clearNo /></span>
                       <span className="player-name">{p.short}</span>
-                      <span className="jl-pills"><Xs who="you" value={p.you} /><Xs who="fan" value={p.fans} provisional={prov} /></span>
+                      <span className="jl-pills"><Xs who="you" value={p.you} motm={p.short === m.myMotm} /><Xs who="fan" value={p.fans} provisional={prov} motm={p.short === m.fanMotm} /></span>
                     </div>
                   );
                 })}
@@ -282,14 +294,14 @@ function LineupCompare({ m, focus }: { m: JournalMatch; focus?: DrillFocus | nul
               {subs.map((s) => (
                 <div className={`bench-player${isGap(s.you, s.fans) ? " gap" : ""}`} key={s.short}>
                   <span className="bench-name">{s.short}</span>
-                  <span className="bench-ratings"><Xs who="you" value={s.you} /><Xs who="fan" value={s.fans} provisional={prov} /></span>
+                  <span className="bench-ratings"><Xs who="you" value={s.you} motm={s.short === m.myMotm} /><Xs who="fan" value={s.fans} provisional={prov} motm={s.short === m.fanMotm} /></span>
                 </div>
               ))}
             </div>
           </div>
         </>
       )}
-      <p className="jl-key"><span><i className="you" />You</span><span><i className="fan" />{fansLabel}</span>{prov ? <span className="pill-live">Live</span> : <span className="pill-final">Final</span>}<span><i className="gap" />More than {ALIGNED_WITHIN} apart</span></p>
+      <p className="jl-key"><span><i className="you" />You</span><span><i className="fan" />{fansLabel}</span>{prov ? <span className="pill-live">Live</span> : <span className="pill-final">Final</span>}<span className="jl-key-motm"><Img src="cup-you.svg" size={9} /><Img src="cup-fan.svg" size={9} />MOTM</span><span className="jl-key-gap"><i className={`gap gap-${view}`} aria-hidden />You and fans more than {ALIGNED_WITHIN} apart</span></p>
     </div>
   );
 }
@@ -430,7 +442,8 @@ function MyPlayerRatings({ matches }: { matches: JournalMatch[] }) {
   const inSheet = ranked.filter((p) => pos === "All" || p.pos === pos);
   const head = (
     <div className="rating-head j-head" role="row">
-      <span role="columnheader">Player <i aria-hidden>·</i> <Img src="cup-you.svg" size={11} /> your MOTM picks · you vs fans</span>
+      {/* Mirrors the row (Michel, 17 Nov): "Player" over the names, and the line under each name explained on one line. */}
+      <span role="columnheader" className="j-head-who"><span>Player</span><small><Img src="cup-you.svg" size={11} />your MOTM picks · you vs fans</small></span>
       <span role="columnheader">You</span>
       <span role="columnheader">Fans</span>
     </div>
@@ -564,72 +577,97 @@ function DnaScale({ left, right, at, note }: { left: string; right: string; at: 
   );
 }
 
+/** One Fan DNA trait as the doc's formula: Trait → Evidence → Interpretation. */
+function DnaTraitRow({ t }: { t: DnaTrait }) {
+  const a = archetype(t.id);
+  return (
+    <div className="dna-trait">
+      <i style={{ background: a.colour }} aria-hidden />
+      <span><b>{t.trait}</b><small>{t.evidence} <em>{t.meaning}</em></small></span>
+    </div>
+  );
+}
+
 /**
- * What Premium's Fan DNA would contain: your rating personality, biggest disagreements with the fans,
- * how your opinions changed over the season. One item per section is shown in full; the rest is the offer.
- * Archetype names wait for Michel's "Rater archetype" document.
+ * Your Fan DNA, built on Michel's archetype doc (14 Nov): a primary archetype and up to 3 supporting traits,
+ * each as Trait → Evidence → Interpretation, then the doc's "at a glance", tendencies, patterns and opposite fan.
+ * The primary archetype is free from V1.5; the rest is Premium, so it shows its first item and offers the rest.
  */
 function FanDnaSheet({ open, onClose, matches }: { open: boolean; onClose: () => void; matches: JournalMatch[] }) {
   const cta = usePremiumCta();
-  const line = dnaLine();
-  const disagree = [...MY_PLAYERS].filter((p) => p.apps >= MIN_MATCHES).sort((a, b) => Math.abs(b.you - b.fans) - Math.abs(a.you - a.fans));
-  const moved = [...MY_PLAYERS].sort((a, b) => Math.abs(b.last6[5].v - b.last6[0].v) - Math.abs(a.last6[5].v - a.last6[0].v))[0];
-  const strictAt = 50 + (BASELINE.you - BASELINE.fans) * 100; // −0.2 → 30: towards "tough"
+  const d = fanDna(matches);
+  const a = d.primary ? archetype(d.primary.id) : null;
+  const gapOf = (m: JournalMatch) => Math.round((m.you - m.fans) * 10) / 10;
   return (
     <Sheet open={open} onClose={onClose} label="Your Fan DNA">
       <div className="sheet-header">
         <div>
           <h2><PremiumBadge /> Your Fan DNA</h2>
-          <p>What makes you unique as a fan · from your {matches.length} rated matches</p>
+          <p>How you rate differently from the average fan · from your {matches.length} rated matches</p>
         </div>
         <button aria-label="Close" onClick={onClose}><Img src="close.svg" size={24} /></button>
       </div>
       <div className="dna">
-        <p className="dna-hero">{line.text}</p>
+        {d.primary && a && (
+          <section className="dna-arch" style={{ ["--arch" as string]: a.colour }}>
+            <small>Your fan archetype</small>
+            <strong><i aria-hidden />{a.name}</strong>
+            <dl>
+              <dt>Trait</dt><dd>{d.primary.trait}</dd>
+              <dt>Evidence</dt><dd>{d.primary.evidence}</dd>
+              <dt>What it says</dt><dd>{d.primary.meaning}</dd>
+            </dl>
+          </section>
+        )}
+
+        {d.supporting.length > 0 && (
+          <section className="dna-sec">
+            <h3>Your supporting traits</h3>
+            <DnaTraitRow t={d.supporting[0]} />
+            {d.supporting.length > 1 && <div className="prem-hidden" aria-hidden>{d.supporting.slice(1).map((t) => <DnaTraitRow key={t.trait} t={t} />)}</div>}
+          </section>
+        )}
 
         <section className="dna-sec">
-          <h3>Your rating personality</h3>
-          <DnaScale left="Tough" right="Generous" at={strictAt} note={<>Your usual <b className="num">{f1(BASELINE.you)}</b> vs the fans&apos; <b className="num">{f1(BASELINE.fans)}</b>: a little tougher than most.</>} />
-          <div className="prem-hidden" aria-hidden>
-            <DnaScale left="Steady" right="Swings big" at={62} note="How far your ratings move from match to match." />
-            <DnaScale left="With the crowd" right="Own mind" at={42} note="How often you land where the fanbase lands." />
+          <h3>At a glance</h3>
+          <div className="dna-glance">
+            <span><small>Agreement with fans</small><b className="num">{d.glance.agreement}%</b></span>
+            <span><small>Consistency</small><b className="num">{d.glance.consistency >= 70 ? "High" : d.glance.consistency >= 50 ? "Medium" : "Low"}</b></span>
+            <span><small>Bias</small><b>{d.glance.bias}</b></span>
           </div>
         </section>
 
         <section className="dna-sec">
-          <h3>Your biggest disagreements with the fans</h3>
-          <div className="dna-row">
-            <Kit no={disagree[0].no} size={32} keeper={disagree[0].pos === "GK"} />
-            <span><b>{disagree[0].short}</b><small>You {f1(disagree[0].you)} · fans {f1(disagree[0].fans)}</small></span>
-            <Delta value={disagree[0].you - disagree[0].fans} />
-          </div>
+          <h3>Your tendencies</h3>
+          <ul className="dna-list"><li>{d.tendencies[0]}</li></ul>
+          <ul className="dna-list prem-hidden" aria-hidden>{d.tendencies.slice(1).map((t) => <li key={t}>{t}</li>)}</ul>
+        </section>
+
+        <section className="dna-sec">
+          <h3>Your patterns</h3>
           <div className="prem-hidden" aria-hidden>
-            {disagree.slice(1, 3).map((p) => (
-              <div className="dna-row" key={p.name}>
-                <Kit no={p.no} size={32} keeper={p.pos === "GK"} />
-                <span><b>{p.short}</b><small>You {f1(p.you)} · fans {f1(p.fans)}</small></span>
-                <Delta value={p.you - p.fans} />
-              </div>
-            ))}
+            <ul className="dna-list">
+              <li>Most aligned match: {label(d.patterns.aligned)}, {d.patterns.aligned.date} ({gapOf(d.patterns.aligned) >= 0 ? "+" : "−"}{f1(Math.abs(gapOf(d.patterns.aligned)))})</li>
+              <li>Biggest disagreement: {label(d.patterns.apart)}, {d.patterns.apart.date} ({gapOf(d.patterns.apart) >= 0 ? "+" : "−"}{f1(Math.abs(gapOf(d.patterns.apart)))})</li>
+              <li>Most debated player: {d.patterns.player.short} (you {f1(d.patterns.player.you)}, fans {f1(d.patterns.player.fans)})</li>
+            </ul>
           </div>
         </section>
 
         <section className="dna-sec">
-          <h3>How your opinions changed this season</h3>
+          <h3>Your opposite fan</h3>
           <div className="prem-hidden" aria-hidden>
-            <div className="dna-row">
-              <Kit no={moved.no} size={32} keeper={moved.pos === "GK"} />
-              <span><b>{moved.short}</b><small>{f1(moved.last6[0].v)} {moved.last6[0].label} → {f1(moved.last6[5].v)} {moved.last6[5].label}</small></span>
-              <Delta value={moved.last6[5].v - moved.last6[0].v} />
-            </div>
+            <div className="dna-trait"><i style={{ background: d.opposite.colour }} /><span><b>{d.opposite.name}</b><small>{d.opposite.line} You&apos;d split with them most on {d.patterns.player.short}.</small></span></div>
           </div>
         </section>
+
+        <p className="dna-later">More traits arrive as you rate: {d.later.slice(0, 4).map((x) => x.name).join(", ")} and more.</p>
 
         <div className="dna-offer">
           <strong>See your full Fan DNA</strong>
-          <span>Your complete rating personality, every big disagreement and how your views moved, season after season.</span>
+          <span>Every supporting trait, your tendencies, patterns and your opposite fan, updated as you rate.</span>
           <button className="btn prem-cta block" onClick={cta}>Get Premium · after launch</button>
-          <small>Free stays free: your fan identity, player ratings, line-ups and match insights.</small>
+          <small>Free stays free: your fan archetype, player ratings, line-ups and match insights.</small>
         </div>
       </div>
     </Sheet>
@@ -644,11 +682,13 @@ function FanDnaPreview({ matches }: { matches: JournalMatch[] }) {
   if (matches.length < DNA_MIN_MATCHES) {
     return <p className="dna-wait"><PremiumBadge /> Your Fan DNA appears after {DNA_MIN_MATCHES} rated matches. You&apos;ve rated {matches.length}.</p>;
   }
+  const sup = fanDna(matches).supporting;
+  const names = sup.map((t) => t.trait.replace(/^A touch of the /, ""));
   return (
     <>
       <button className="dna-preview" onClick={() => setOpen(true)}>
         <span className="dna-top"><PremiumBadge /><b>Your Fan DNA</b></span>
-        <span className="dna-line">{dnaLine().text}</span>
+        <span className="dna-line">{sup.length ? <>Plus a touch of the {names.join(" and the ")}. Your supporting traits, tendencies and opposite fan.</> : dnaLine().text}</span>
         <span className="dna-more">See what makes you unique<Img src="chevron-right.svg" size={14} /></span>
       </button>
       <FanDnaSheet open={open} onClose={() => setOpen(false)} matches={matches} />
@@ -661,15 +701,79 @@ function FanIdentity({ matches, enough }: { matches: JournalMatch[]; enough: boo
   const { compared } = useSettled(matches);
   if (!enough) return null;
   const id = fanIdentity(compared);
+  // From V1.5 (the premium launch, Michel's archetype doc) the card leads with your primary archetype, which is free.
+  const dna = edges.premium ? fanDna(compared) : null;
+  const arch = dna?.primary ? archetype(dna.primary.id) : null;
   return (
     <section className="j-identity" aria-labelledby="j-identity-title">
-      <p className="j-identity-eyebrow">Your fan identity</p>
-      <h2 id="j-identity-title">{id.headline}</h2>
+      {arch && dna?.primary ? (
+        <div className="j-arch" style={{ ["--arch" as string]: arch.colour }}>
+          <p className="j-identity-eyebrow">Your fan archetype</p>
+          <h2 id="j-identity-title"><i aria-hidden />{arch.name}</h2>
+          <p className="j-arch-line">{dna.primary.trait} {dna.primary.meaning}</p>
+        </div>
+      ) : (
+        <>
+          <p className="j-identity-eyebrow">Your fan identity</p>
+          <h2 id="j-identity-title">{id.headline}</h2>
+        </>
+      )}
       <ul className="j-traits">
-        {id.traits.map((t) => <li key={t.title}><b>{t.title}</b><span>{t.ev}</span></li>)}
+        {id.traits.map((t, i) => <li key={t.title}><b>{i === 0 && dna && Math.abs(dna.gap) < 0.6 && Math.abs(dna.gap) >= 0.15 ? (dna.gap < 0 ? "A touch tougher than the fans" : "A touch kinder than the fans") : t.title}</b><span>{t.ev}</span></li>)}
       </ul>
       <p className="j-identity-foot">From your {BASELINE.ratings} player ratings this season · it changes as you rate.</p>
       {edges.premium && <FanDnaPreview matches={matches} />}
+    </section>
+  );
+}
+
+/**
+ * Rare moments (after launch, 16 Nov thread): every personal record you hold across your whole RATEM history.
+ * Only appears once "ever" means something (RARE.minMatches). A record that was revealed on a gold card reopens
+ * that card on its own record; the rest (they only edged past the old one) open the match.
+ */
+function YourRecords({ matches }: { matches: JournalMatch[] }) {
+  const { edges } = usePrototype();
+  const rare = useMemo(() => rareMoments(matches), [matches]);
+  if (!edges.rare || !rare.enough || !rare.records.length) return null;
+  const at = (r: RareRecord) => `${r.m.venue} ${r.m.code} · ${r.m.date}`;
+  const lineOf = (r: RareRecord) => {
+    if (r.kind === "gap" && r.p && r.q) return <>{r.p.short} <b className="num">{f1(r.p.you)}</b> · {r.q.short} <b className="num">{f1(r.q.you)}</b></>;
+    if (r.kind === "motm" && r.p) return <>of fans also picked {r.p.short}</>;
+    if (r.kind === "split" && r.p) { const p = lineupFor(r.m).find((x) => x.short === r.p!.short)!; return <>{r.p.short}, {p.you < p.fans ? "below" : "above"} the fans</>; }
+    if (r.kind === "teamHigh" || r.kind === "teamLow") return <>Match rating · <span style={{ whiteSpace: "nowrap" }}>{r.m.score} {r.m.result}</span></>;
+    if (r.kind === "mgrHigh" || r.kind === "mgrLow") return <>Head Coach</>;
+    return <>{r.p?.short}</>;
+  };
+  const art = (r: RareRecord) => {
+    if (r.kind === "teamHigh" || r.kind === "teamLow") return <TeamLogo name={r.m.opp} size={30} />;
+    if (r.kind === "mgrHigh" || r.kind === "mgrLow") return <span className="rec-coach"><Img src="tie.svg" w={9} h={22} /></span>;
+    return <>{r.p && <Kit no={r.p.no} size={34} keeper={r.p.pos === "GK"} />}{r.q && <Kit no={r.q.no} size={34} keeper={r.q.pos === "GK"} />}</>;
+  };
+  return (
+    <section aria-labelledby="j-records-title" className="j-records">
+      <div className="section-head">
+        <div>
+          <h2 id="j-records-title">Your records</h2>
+          <p className="section-sub">Your all-time bests on RATEM · {rare.total} rated matches</p>
+        </div>
+      </div>
+      <ul className="rail">
+        {rare.records.map((r) => {
+          const own = rare.onCard(r);
+          return (
+            <li key={r.kind}>
+              <Link href={own ? `/my-journal/match/${r.m.id}?m=rare-${r.kind}` : `/my-journal/rated/${r.m.id}?from=record:${r.kind}`} onClick={() => { if (!own) drillOpened = true; }} scroll={false} className="tile rec-tile">
+                <span className="tile-label">{r.m.id === rare.latest && <span className="new-dot">New</span>}{RARE_NAME[r.kind]}</span>
+                <span className="rec-kits">{art(r)}</span>
+                <strong className="tile-big num">{r.kind === "motm" ? <>{r.value}<small>%</small></> : f1(r.value)}</strong>
+                <span className="tile-line">{lineOf(r)}</span>
+                <span className="rec-at">{own && <span className="rec-card" title="Revealed on a gold card"><RecordMedal size={11} /></span>}{at(r)}</span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }
@@ -694,6 +798,7 @@ export function JournalHome() {
           </div>
         )}
         <JournalRail matches={matches} enough={enough} />
+        {enough && <YourRecords matches={matches} />}
         {enough && <MyPlayerRatings matches={matches} />}
         <RatedMatches matches={matches} />
       </div>
@@ -821,6 +926,7 @@ function drillBack(from: string | null) {
   if (kind === "differ" && v) return { href: `/my-journal/vs-fans?differ=${q}`, label: `${v} · Where You Differ` };
   if (kind === "range") return { href: `/my-journal/identity${v ? `?range=${q}` : ""}`, label: v ? `${v} · Your Rating Range` : "Your Rating Range" };
   if (kind === "motm" && v) return { href: `/my-journal/motm?motm=${q}`, label: `${v} · Your MOTM Picks` };
+  if (kind === "record") return { href: "/my-journal", label: "Your records" };
   return { href: "/my-journal", label: "My Journal" };
 }
 
@@ -855,6 +961,13 @@ function drillFocus(from: string | null, m: JournalMatch, matches: JournalMatch[
   if (kind === "motm" && v) {
     const rating = lineupFor(m).find((x) => x.short === v)?.you;
     return { short: v, line: <>You named {v} your Man of the Match{rating !== undefined && <> and gave him <b className="num">{f1(rating)}</b></>}.{m.fanMotm === v ? " The fans picked him too." : ` The fans went with ${m.fanMotm}.`}</> };
+  }
+  if (kind === "record") {
+    const r = rareMoments(matches).records.find((x) => x.kind === v && x.m.id === m.id);
+    if (!r) return null;
+    const value = r.kind === "motm" ? `${r.value}%` : f1(r.value);
+    const who = r.kind === "gap" && r.p && r.q ? `, ${r.p.short} to ${r.q.short}` : r.p ? `, ${r.p.short}` : "";
+    return { short: r.p?.short ?? "", line: <>Still your record. {RARE_NAME[r.kind]}: <b className="num">{value}</b>{who}.</> };
   }
   return null;
 }
@@ -1367,6 +1480,52 @@ function RangeCard() {
   );
 }
 
+/**
+ * How You Rate (the original "How You Rate Salah" chart, 17 Nov): your ratings in one-point bands with the most common
+ * band marked, plus how many ratings and the median. It sits under Your Rating Range: the range says where you usually
+ * land, this shows the whole shape. Same player filter; `?how=Salah` opens on a player.
+ */
+function HowYouRate() {
+  const { playerFilter, setPlayerFilter } = usePrototype();
+  const linked = useReviewValue("how");
+  const value = playerFilter.jhow ?? (linked && eligible.some((x) => x.short === linked) ? linked : "all");
+  const { shown, loading } = useSwap(value);
+  const p = eligible.find((x) => x.short === shown);
+  const counts = p ? bandCounts(playerSeason(p.short).map((x) => x.v)) : ALL_BANDS;
+  const total = counts.reduce((a, b) => a + b, 0);
+  const max = Math.max(...counts);
+  const top = counts.indexOf(max);
+  return (
+    <Moment id="howrate" accent="green" question="What do your ratings usually look like?" title={p ? `How You Rate ${p.short}` : "How You Rate"}
+      context={p ? `${p.name} · your ${total} ratings · ${SEASON}` : `All your ${total} player ratings · ${SEASON}`}
+      filter={<PlayerFilter label="Player" options={playerOptions(eligible)} value={value} onChange={(id) => setPlayerFilter("jhow", id)} />}
+      note={<>Your ratings in one-point bands. Median = the middle rating: half your ratings sit above it, half below. Players need {MIN_MATCHES}+ of your ratings.</>}>
+      {loading ? <Skeleton rows={4} /> : (
+        <div className="swap-in j-stack">
+          <div className="answer">
+            <strong className="answer-big">Mostly <span className="num">{RATING_BANDS[top].label}</span></strong>
+            <span className="answer-line"><b className="num">{counts[top]}</b> of your <b className="num">{total}</b> {p ? `ratings for ${p.short}` : "player ratings"} land in that band</span>
+          </div>
+          <div className="j-dist" role="img" aria-label={`Your ratings per band: ${RATING_BANDS.map((b, i) => `${b.label}: ${counts[i]}`).join(", ")}. Most common: ${RATING_BANDS[top].label}.`}>
+            {RATING_BANDS.map((b, i) => (
+              <div key={b.id} className={`j-dist-col${i === top ? " top" : ""}${counts[i] ? "" : " empty"}`}>
+                {i === top && <em className="j-dist-tag">Most common</em>}
+                <b className="num">{counts[i] || "–"}</b>
+                <span className="j-dist-bar" style={{ height: `${Math.max(3, (counts[i] / max) * 100)}%` }} />
+                <small>{b.label}</small>
+              </div>
+            ))}
+          </div>
+          <div className="j-dist-stats">
+            <div><small>Total ratings</small><strong className="num">{total}</strong><span>{p ? "matches" : "player ratings"}</span></div>
+            <div><small>Median rating</small><strong className="num you">{f1(p ? p.you : BASELINE.you)}</strong><span>{p ? "your usual for him" : "your usual"}</span></div>
+          </div>
+        </div>
+      )}
+    </Moment>
+  );
+}
+
 /* ---------------- You vs Fans ---------------- */
 
 function Agreement({ matches }: { matches: JournalMatch[] }) {
@@ -1529,6 +1688,49 @@ function AboveBelowFans({ matches }: { matches: JournalMatch[] }) {
           </li>
         ))}
       </ul>
+      <SettledLine live={live} remaining={remaining} count={compared.length} />
+    </Moment>
+  );
+}
+
+/**
+ * When You Strongly Disagreed (the original card, 17 Nov): your ratings STRONG_GAP or more away from the fans' average
+ * for that player in that match. Rare by design, so every one is listed, and a player who keeps coming up gets a line.
+ */
+function StrongDisagree({ matches }: { matches: JournalMatch[] }) {
+  const { compared, live, remaining } = useSettled(matches);
+  const rows = STRONG_DISAGREE.map((r) => ({ ...r, m: JOURNAL_MATCHES.find((x) => x.id === r.id)!, gap: Math.round((r.you - r.fans) * 10) / 10, kit: kitOf(r.short) }));
+  const above = rows.filter((r) => r.gap > 0), below = rows.filter((r) => r.gap < 0);
+  const tally = (list: typeof rows) => [...list.reduce((acc, r) => acc.set(r.short, (acc.get(r.short) ?? 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1])[0];
+  const leadUp = tally(above), leadDown = tally(below);
+  const lead = leadUp && leadUp[1] >= 2 ? { who: leadUp[0], n: leadUp[1], of: above.length, dir: "above" as const } : leadDown && leadDown[1] >= 2 ? { who: leadDown[0], n: leadDown[1], of: below.length, dir: "below" as const } : null;
+  return (
+    <Moment id="strong" accent="coral" question="How often are you miles away from the fans?" title="When You Strongly Disagreed"
+      context={`Your ratings ${f1(STRONG_GAP)}+ away from the fans' average · ${SEASON}`}
+      note={<>Strongly = your rating {f1(STRONG_GAP)} or more above or below the fans&apos; average for that player in that match. A match counts when {FAN_MIN_RATINGS}+ fans rated him.</>}>
+      <div className="answer">
+        <strong className="answer-big"><span className="num">{rows.length}</span> big disagreements</strong>
+        <span className="answer-line">out of <b className="num">{AGREEMENT.seasonN}</b> ratings you can compare with the fans</span>
+      </div>
+      <div className="j-strong-tiles">
+        <div className="above"><strong className="num">{above.length}</strong><small>Strongly above</small></div>
+        <div className="below"><strong className="num">{below.length}</strong><small>Strongly below</small></div>
+      </div>
+      <ul className="j-strong-list" aria-label="Every strong disagreement this season">
+        {rows.map((r) => (
+          <li key={r.short + r.id}>
+            <Kit no={r.kit?.no} size={28} keeper={r.kit?.keeper} />
+            <span className="j-strong-who"><b>{r.short}</b><small>{label(r.m)} · {r.m.date}</small></span>
+            <span className="j-strong-nums"><b className="num you">{f1(r.you)}</b><small>vs</small><b className="num j-fan">{f1(r.fans)}</b></span>
+            <Delta value={r.gap} />
+          </li>
+        ))}
+      </ul>
+      {lead && (
+        <Takeaway title={lead.dir === "above" ? `You're more generous with ${lead.who} than most fans` : `You're tougher on ${lead.who} than most fans`}>
+          <b className="num">{lead.n} of {lead.of}</b> of your strongly-{lead.dir} ratings were for him.
+        </Takeaway>
+      )}
       <SettledLine live={live} remaining={remaining} count={compared.length} />
     </Moment>
   );
@@ -1726,6 +1928,412 @@ function ResultEffect({ matches }: { matches: JournalMatch[] }) {
   );
 }
 
+/* ---------------- 14 Nov: the rest of TechAhead's original cards ---------------- */
+
+const pct = (a: number, n: number) => Math.round((a / Math.max(1, n)) * 100);
+const venueWord = { vs: "at home", "@": "away" } as const;
+const venueSide = { vs: "home", "@": "away" } as const;
+
+/** MOTM Agreement Home/Away (TechAhead's original MOTM Profile card): do you and the fans agree more at home or away? */
+function MotmHomeAway({ matches }: { matches: JournalMatch[] }) {
+  const { compared, live, remaining } = useSettled(matches);
+  const { home, away } = motmByVenue(compared);
+  const ready = home.n >= MOTM_MIN.fanPick && away.n >= MOTM_MIN.fanPick;
+  const hp = pct(home.agreed, home.n), ap = pct(away.agreed, away.n);
+  const lead = Math.abs(hp - ap) < 5 ? null : hp > ap ? home : away;
+  const other = lead === home ? away : home;
+  return (
+    <Moment id="venue" accent="sky" question="Do you and the fans agree more at home or away?" title="Home or Away"
+      context={`Your MOTM vs the fans' · ${home.n} home, ${away.n} away · ${SEASON}`}
+      note={<>Home = vs, away = @. Same pick = you and the fans named the same Man of the Match. Each side needs {MOTM_MIN.fanPick}+ matches.</>}>
+      {ready ? (
+        <>
+          <div className="answer">
+            <strong className="answer-big">{lead ? `You agree more ${venueWord[lead.venue]}` : "About the same home and away"}</strong>
+            <span className="answer-line">Same MOTM as the fans in <b className="num">{home.agreed} of {home.n}</b> home matches and <b className="num">{away.agreed} of {away.n}</b> away</span>
+          </div>
+          <div className="venue-tiles">
+            {[home, away].map((s) => {
+              const chrono = [...s.matches].reverse();
+              return (
+                <div key={s.venue} className={`venue-tile${lead === s ? " lead" : ""}`}>
+                  <span className="venue-tag">{s.venue === "vs" ? "Home" : "Away"} <small>{s.venue}</small></span>
+                  <strong className="num">{pct(s.agreed, s.n)}%</strong>
+                  <small>same pick · <span className="num">{s.agreed} of {s.n}</span></small>
+                  <ol className="j-dots venue-dots" style={{ gridTemplateColumns: `repeat(${Math.max(6, chrono.length)}, minmax(0, 1fr))` }} aria-label={`${s.venue === "vs" ? "Home" : "Away"}, oldest first: ${chrono.map((m) => `${label(m)} ${m.myMotm === m.fanMotm ? "same" : "different"}`).join(", ")}`}>
+                    {chrono.map((m) => <li key={m.id} className={m.myMotm === m.fanMotm ? "same" : "diff"}>{m.myMotm === m.fanMotm ? "✓" : ""}</li>)}
+                  </ol>
+                </div>
+              );
+            })}
+          </div>
+          <p className="j-dots-key"><span><i className="same" />Same pick</span><span><i className="diff" />Different</span><span>Oldest → newest</span></p>
+          {lead && other.topPair && (
+            <p className="ga-impact">
+              <span className="ga-impact-tag">{other.venue === "vs" ? "Home" : "Away"} splits</span>
+              <span><b className="num">{other.topPair.n} of {other.splits.length}</b> of your {venueSide[other.venue]} splits were {other.topPair.pair}.</span>
+            </p>
+          )}
+        </>
+      ) : (
+        <div className="state-panel j-early">
+          <strong>Needs {MOTM_MIN.fanPick}+ home and away matches</strong>
+          <span>You&apos;ve rated {home.n} at home and {away.n} away so far.</span>
+        </div>
+      )}
+      <SettledLine live={live} remaining={remaining} count={compared.length} />
+    </Moment>
+  );
+}
+
+/** Manager Baseline vs Fans (TechAhead's original Manager & Team card): your usual manager rating vs the fans'. */
+function ManagerVsFans({ matches }: { matches: JournalMatch[] }) {
+  const { compared, live, remaining } = useSettled(matches);
+  const s = managerVsFans(compared);
+  const gap = Number(f1(s.you)) - Number(f1(s.fans));
+  const differ = s.above.length + s.below.length;
+  const big = s.biggest;
+  return (
+    <Moment id="mgrfans" accent="blue" question="Do you rate the manager higher or lower than the fans?" title="The Manager: You vs the Fans"
+      context={`Your usual manager rating vs the fans' · same ${s.n} matches · ${SEASON}`}
+      note={<>Usual = the median manager rating, yours and the fans&apos;, over the same matches. Above / below = more than {ALIGNED_WITHIN} apart in that match; level = within {ALIGNED_WITHIN}.</>}>
+      <YouVsFans you={s.you} fans={s.fans} youLabel="Your usual" fansLabel="Fans' usual" />
+      <p className="answer-line center">{Math.abs(gap) < ALIGNED_WITHIN ? "Overall you see him much like the fans do" : gap < 0 ? `You usually rate him ${f1(-gap)} below the fans` : `You usually rate him ${f1(gap)} above the fans`}</p>
+      <div className="mgr-split">
+        <span className="ab-bar" aria-hidden>
+          <i className="up" style={{ flexGrow: s.above.length }} />
+          <i className="level" style={{ flexGrow: s.level }} />
+          <i className="down" style={{ flexGrow: s.below.length }} />
+        </span>
+        <p className="ab-key"><span><i className="up" />Above the fans <b className="num">{s.above.length}</b></span><span><i className="level" />Level <b className="num">{s.level}</b></span><span><i className="down" />Below <b className="num">{s.below.length}</b></span></p>
+      </div>
+      {differ > 0 && (
+        <p className="answer-line">
+          {s.below.length > s.above.length ? <>When you differ, you&apos;re usually harder on him: below the fans in <b className="num">{s.below.length} of {differ}</b>.</>
+            : s.above.length > s.below.length ? <>When you differ, you&apos;re usually kinder to him: above the fans in <b className="num">{s.above.length} of {differ}</b>.</>
+              : <>When you differ, it goes both ways: <b className="num">{s.above.length}</b> above, <b className="num">{s.below.length}</b> below.</>}
+        </p>
+      )}
+      {big && Math.abs(big.gap) > ALIGNED_WITHIN && (
+        <p className="ga-impact">
+          <span className="ga-impact-tag">Biggest gap</span>
+          <span>{label(big.m)}, {big.m.date} ({big.m.score} {big.m.result}): you <b className="num">{f1(big.you)}</b>, fans <b className="num j-fan">{f1(big.fans)}</b>. {big.gap > 0 ? "You were kinder to him than the fans that day." : "You were harder on him than the fans that day."}</span>
+        </p>
+      )}
+      <SettledLine live={live} remaining={remaining} count={compared.length} />
+    </Moment>
+  );
+}
+
+/** Manager Rating by Result (TechAhead's original card): does the result move your manager rating, next to your team rating? */
+function ManagerByResult({ matches }: { matches: JournalMatch[] }) {
+  const { compared, live, remaining } = useSettled(matches);
+  const rows = managerByResult(compared).filter((r) => r.n > 0);
+  const best = rows[0], worst = rows[rows.length - 1];
+  const gapOf = (k: "you" | "fans" | "team") => (rows.length > 1 && best[k] !== null && worst[k] !== null ? Number(f1(best[k]!)) - Number(f1(worst[k]!)) : null);
+  const you = gapOf("you"), fans = gapOf("fans"), team = gapOf("team");
+  return (
+    <Moment id="mgrresult" accent="sky" question="Does the result change how you rate the manager?" title="The Manager by Result"
+      context={`Your manager rating · ${compared.length} matches · ${SEASON}`}
+      note={<>Your manager rating, averaged by result. Fans = their manager rating in the same matches. Team = your team rating in the same matches, for comparison.</>}>
+      {rows.length < 2 ? (
+        <div className="state-panel j-early">
+          <strong>Needs two different results</strong>
+          <span>Every match you&apos;ve rated so far was a {RESULT_ONE[rows[0]?.r ?? "W"]}.</span>
+        </div>
+      ) : (
+        <>
+          <div className="result-tiles" style={{ gridTemplateColumns: `repeat(${rows.length}, 1fr)` }}>
+            {rows.map((r) => (
+              <div key={r.r} className={`rtile static ${r.r}`}>
+                <em className={`res ${r.r}`}>{r.r}</em>
+                <strong className="num">{r.you === null ? "—" : f1(r.you)}</strong>
+                <small>{RESULT_TITLE[r.r]}</small>
+                <b className="rtile-n">{matchesWord(r.n)}</b>
+              </div>
+            ))}
+          </div>
+          {you !== null && <p className="answer-line">After {RESULT_WORD[best.r]} you rate the manager <b className="num">{f1(you)}</b> higher than after {RESULT_WORD[worst.r]}.{fans !== null && <> Fans: <b className="num j-fan">{f1(fans)}</b>.</>}</p>}
+          {you !== null && team !== null && (
+            <p className="ga-impact">
+              <span className="ga-impact-tag">Next to the team</span>
+              <span>{team > you ? <>The result moves your team rating more: <b className="num">{f1(team)}</b> between {RESULT_WORD[best.r]} and {RESULT_WORD[worst.r]}. You put results on the players more than the manager.</> : <>The result moves your manager rating as much as your team rating (<b className="num">{f1(team)}</b>), or more.</>}</span>
+            </p>
+          )}
+          <SettledLine live={live} remaining={remaining} count={compared.length} />
+        </>
+      )}
+    </Moment>
+  );
+}
+
+/* ---- Premium (later), 14 Nov: the original paid and identity cards, designed but behind the review toggle ---- */
+
+/** Your MOTM in Wins and Losses (TechAhead's original Paid MOTM card). */
+function MotmWinsLosses({ matches }: { matches: JournalMatch[] }) {
+  const [w, l] = motmByResult(matches);
+  if (!w.n || !l.n) return null;
+  const top = w.picks[0];
+  const neverInLosses = top && !l.picks.some((p) => p.short === top.short);
+  return (
+    <Moment id="motmwl" accent="gold" question="Who do you crown when you win, and when you lose?" title="Your MOTM in Wins and Losses"
+      context={`Your MOTM picks · ${w.n} wins, ${l.n} losses · ${SEASON}`}
+      note={<>Your own picks, so every rated match counts. Draws aren&apos;t included.</>}>
+      <div className="answer">
+        <strong className="answer-big">{neverInLosses ? `${top.short} in wins, never in losses` : `${top.short} in wins`}</strong>
+        <span className="answer-line">Your MOTM gets <b className="num">{f1(w.avg ?? 0)}</b> from you in wins, <b className="num">{f1(l.avg ?? 0)}</b> in losses</span>
+      </div>
+      <div className="wl-cols">
+        {[w, l].map((s) => (
+          <div key={s.r} className={`wl-col ${s.r}`}>
+            <span className="wl-head"><em className={`res ${s.r}`}>{s.r}</em>In {s.r === "W" ? "wins" : "losses"} <small className="num">{s.n}</small></span>
+            <ul>
+              {s.picks.slice(0, 3).map((p) => {
+                const k = kitOf(p.short);
+                return <li key={p.short}>{k && <Kit no={k.no} size={26} keeper={k.keeper} />}<span>{p.short}</span><b className="num">{p.n}</b></li>;
+              })}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </Moment>
+  );
+}
+
+/** Your MOTM Independence (TechAhead's original Paid "Low MOTM Agreement Identity"), placed among all fans. */
+function MotmIndependence({ matches }: { matches: JournalMatch[] }) {
+  const { compared } = useSettled(matches);
+  const p = motmProfile(compared);
+  const you = pct(p.matched, p.n);
+  const ind = MOTM_INDEPENDENCE;
+  return (
+    <Moment id="independent" accent="sky" question="How often do you go your own way on MOTM?" title="Your MOTM Independence"
+      context={`Your MOTM vs the fans' · ${p.n} matches · compared with ${ind.fansCompared.toLocaleString("en-GB")} fans`}
+      note={<>Same pick = you named the fans&apos; most-voted MOTM. Fans compared = everyone who rated 10+ matches this season (sample numbers).</>}>
+      <div className="vs-pair j-pair">
+        <div className="you"><small>You</small><strong className="num">{you}%</strong></div>
+        <span className="vs">vs</span>
+        <div className="fans"><small>The typical fan</small><strong className="num">{ind.fansMedian}%</strong></div>
+      </div>
+      <p className="answer-line center">Same MOTM as the fanbase: <b className="num">{p.matched} of {p.n}</b> for you</p>
+      <DnaScale left="Goes with the crowd" right="Goes own way" at={ind.moreIndependentThan} note={<>You go your own way more than <b className="num">{ind.moreIndependentThan}%</b> of fans.</>} />
+    </Moment>
+  );
+}
+
+/** Your Player Percentiles (TechAhead's original Premium card in Rating Vs Fans). */
+function PlayerPercentiles() {
+  const rows = [...PERCENTILES].sort((a, b) => b.pct - a.pct);
+  const top = rows[0], low = rows[rows.length - 1];
+  return (
+    <Moment id="percentiles" accent="coral" question="Where do your ratings sit among all fans?" title="Your Player Percentiles"
+      context={`Your season average per player vs every fan's · ${SEASON}`}
+      note={<>Percentile = the share of fans whose season average for that player is lower than yours. Fans need {MIN_MATCHES}+ ratings of him to count (sample numbers).</>}>
+      <div className="answer">
+        <strong className="answer-big">Higher on {top.short} than {top.pct}% of fans</strong>
+        <span className="answer-line">And lower on {low.short} than {100 - low.pct}% of them</span>
+      </div>
+      <ol className="agree-list pct-list">
+        {rows.map((r) => (
+          <li key={r.short}>
+            <Kit no={r.no} size={28} />
+            <div className="ag-mid">
+              <span className="ab-name">{r.short}<small>{r.pct >= 50 ? "higher than most" : "lower than most"}</small></span>
+              <span className="ag-bar pct-bar" aria-hidden><i style={{ width: `${r.pct}%` }} /><b style={{ left: "50%" }} /></span>
+            </div>
+            <strong className="num ag-pct">{r.pct}<small>%</small></strong>
+          </li>
+        ))}
+      </ol>
+      <p className="j-dots-key"><span>The mark = the middle fan</span></p>
+    </Moment>
+  );
+}
+
+/* ---- Player relationships (Premium), on Michel's "Player Relationship Logic" doc (14 Nov) ---- */
+
+type Types = ReturnType<typeof playerTypes>;
+const typeCtx = (t: Types, full: boolean) => full ? `Sample full season · ${t.matches} matches` : `Your ratings · ${t.matches} matches · ${SEASON}`;
+const pctOf = (a: number, b: number) => Math.round((a / Math.max(1, b)) * 100);
+const timesWord = (n: number) => (n === 1 ? "once" : n === 2 ? "twice" : `${n} times`);
+const numWord = (n: number) => ["no", "one", "two", "three", "four", "five", "six"][n] ?? String(n);
+
+/** Unsung Hero: 10+ top-3 finishes, no MOTM in 90%+ of them, 2 MOTMs at most. */
+function UnsungHero({ t, full }: { t: Types; full: boolean }) {
+  const u = t.unsung;
+  if (!u) return null;
+  const without = u.top3 - u.motm;
+  return (
+    <Moment id="unsung" accent="gold" question="Who do you rate highly but rarely crown?" title="Unsung Hero"
+      context={typeCtx(t, full)}
+      note={<>Shown when a player has 12+ appearances, 10+ top-3 finishes, and your MOTM in no more than 10% of them (2 at most). Top 3 = one of your three highest-rated players in that match.</>}>
+      <div className="div-hero">
+        <Kit no={u.p.no} size={60} keeper={u.p.pos === "GK"} />
+        <div>
+          <strong className="answer-big">{u.p.short}</strong>
+          <span className="answer-line">In your top 3 in <b className="num">{u.top3}</b> matches. Your MOTM in just <b className="num">{u.motm}</b> of them.</span>
+        </div>
+      </div>
+      <ol className="pt-dots" aria-label={`${u.top3} top-3 finishes, ${u.motm} with your MOTM`}>
+        {Array.from({ length: u.top3 }, (_, i) => <li key={i} className={i === u.top3 - 1 && u.motm ? "motm" : ""}>{i === u.top3 - 1 && u.motm ? "★" : ""}</li>)}
+      </ol>
+      <p className="j-dots-key"><span><i className="same" />Top 3, no MOTM</span><span><i className="pt-motm" />Your MOTM</span></p>
+      <p className="answer-line"><b className="num">{pctOf(without, u.top3)}%</b> of his top-3 matches went without your MOTM.</p>
+    </Moment>
+  );
+}
+
+/** Mr Consistent: the narrowest band holding 90%+ of his ratings is no wider than 0.5. Outliers stay visible. */
+function MrConsistent({ t, full }: { t: Types; full: boolean }) {
+  const c = t.consistent;
+  if (!c) return null;
+  const lo = 5, hi = 9.5, at = (v: number) => `${((Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo)) * 100}%`;
+  const stack = new Map<number, number>();
+  return (
+    <Moment id="consistent" accent="violet" question="Who do you rate most steadily?" title="Mr Consistent"
+      context={typeCtx(t, full)}
+      note={<>Shown when 90%+ of a player&apos;s ratings sit inside one band no wider than 0.5, from 12+ appearances. Ratings outside the band stay visible.</>}>
+      <div className="div-hero">
+        <Kit no={c.p.no} size={60} keeper={c.p.pos === "GK"} />
+        <div>
+          <strong className="answer-big">{c.p.short}</strong>
+          <span className="answer-line"><b className="num">{c.inBand} of {c.apps}</b> ratings between <b className="num">{f1(c.lo)}</b> and <b className="num">{f1(c.hi)}</b></span>
+        </div>
+      </div>
+      <div className="pt-dist" role="img" aria-label={`${c.p.short}: ${c.inBand} of ${c.apps} ratings between ${f1(c.lo)} and ${f1(c.hi)}. Outside it: ${c.outliers.map(f1).join(", ")}.`}>
+        <span className="pt-band" style={{ left: at(c.lo), width: `calc(${at(c.hi)} - ${at(c.lo)})` }} />
+        {c.all.map((v, i) => { const k = Math.round(v * 10); const n = stack.get(k) ?? 0; stack.set(k, n + 1); return <i key={i} className={v < c.lo || v > c.hi ? "out" : ""} style={{ left: at(v), bottom: `${6 + n * 7}px` }} />; })}
+        <span className="pt-axis"><b style={{ left: at(5) }}>5</b><b style={{ left: at(6) }}>6</b><b style={{ left: at(7) }}>7</b><b style={{ left: at(8) }}>8</b><b style={{ left: at(9) }}>9</b></span>
+      </div>
+      <p className="answer-line"><b className="num">{pctOf(c.inBand, c.apps)}%</b> inside a <b className="num">{f1(c.hi - c.lo)}</b> band. {c.outliers.length ? <>Outside it: {c.outliers.map((v) => <b key={v} className="num">{f1(v)} </b>)}</> : null}</p>
+    </Moment>
+  );
+}
+
+/** Highs & Lows: repeatedly in your top 3 and your bottom 3, with a 2.5+ gap between the two medians. */
+function HighsAndLows({ t, full }: { t: Types; full: boolean }) {
+  const h = t.highslows;
+  if (!h) return null;
+  return (
+    <Moment id="highslows" accent="coral" question="Which player swings between your favourite and your frustration?" title="Highs & Lows"
+      context={typeCtx(t, full)}
+      note={<>Shown when a player has 12+ appearances, 3+ top-3 and 3+ bottom-3 finishes (each 15%+ of his matches), and his top-3 median is 2.5+ above his bottom-3 median. The range is context, not part of the test.</>}>
+      <div className="div-hero">
+        <Kit no={h.p.no} size={60} keeper={h.p.pos === "GK"} />
+        <div>
+          <strong className="answer-big">{h.p.short}</strong>
+          <span className="answer-line">In your top 3 in <b className="num">{h.top}</b> matches, and your bottom 3 in <b className="num">{h.bottom}</b></span>
+        </div>
+      </div>
+      <div className="vs-pair j-pair">
+        <div className="you"><small>Top-3 median</small><strong className="num">{f1(h.topMedian)}</strong></div>
+        <span className="vs">vs</span>
+        <div className="lo"><small>Bottom-3 median</small><strong className="num">{f1(h.bottomMedian)}</strong></div>
+      </div>
+      <p className="answer-line"><b className="num">{f1(h.topMedian - h.bottomMedian)}</b> apart. Both sides recur: <b className="num">{pctOf(h.top, h.apps)}%</b> and <b className="num">{pctOf(h.bottom, h.apps)}%</b> of his <b className="num">{h.apps}</b> matches.</p>
+      <p className="j-onematch">Your range for him: {f1(h.low)} to {f1(h.high)}.</p>
+    </Moment>
+  );
+}
+
+/** Scapegoat: bottom 3 in 7+ losses (and 50%+ of them), 2.0+ lower in losses than in wins and draws. */
+function Scapegoat({ t, full }: { t: Types; full: boolean }) {
+  const s = t.scapegoat;
+  if (!s) return null;
+  const drop = Number(f1(s.wdAvg)) - Number(f1(s.lossAvg));
+  return (
+    <Moment id="scapegoat" accent="coral" question="Who takes the blame when you lose?" title="Scapegoat"
+      context={typeCtx(t, full)}
+      note={<>Shown when a player has 12+ appearances with 7+ losses and 7+ wins or draws rated, is in your bottom 3 in 7+ losses (and at least half of them), and averages 2.0+ lower in losses. If several qualify, the biggest drop wins.</>}>
+      <div className="div-hero">
+        <Kit no={s.p.no} size={60} keeper={s.p.pos === "GK"} />
+        <div>
+          <strong className="answer-big">{s.p.short}</strong>
+          <span className="answer-line">In your bottom 3 in <b className="num">{s.bottomInLosses} of {s.losses}</b> losses</span>
+        </div>
+      </div>
+      <div className="vs-pair j-pair">
+        <div className="you"><small>Wins &amp; draws</small><strong className="num">{f1(s.wdAvg)}</strong></div>
+        <span className="vs">vs</span>
+        <div className="lo"><small>Losses</small><strong className="num">{f1(s.lossAvg)}</strong></div>
+      </div>
+      <p className="answer-line center">A <b className="num">{f1(drop)}</b> drop, the biggest of any player.{s.next && <> Next: {s.next.p.short}, <b className="num">{f1(s.next.drop)}</b>.</>}</p>
+    </Moment>
+  );
+}
+
+/** Moments Player: 3+ ratings of 9.0+ (25% of matches at most), your MOTM every time, median of the rest below 7.5. */
+function MomentsPlayer({ t, full }: { t: Types; full: boolean }) {
+  const m = t.moments;
+  if (!m) return null;
+  const med = [...m.moments.map((x) => x.v)].sort((a, b) => a - b);
+  const momentsMedian = med.length % 2 ? med[med.length >> 1] : (med[med.length / 2 - 1] + med[med.length / 2]) / 2;
+  return (
+    <Moment id="moments" accent="gold" question="Who becomes the main character on his big days?" title="Moments Player"
+      context={typeCtx(t, full)}
+      note={<>Shown when a player has 12+ appearances, 3+ ratings of 9.0+ (no more than 25% of his matches), your MOTM in every one of them, and a median below 7.5 in all his other matches.</>}>
+      <div className="div-hero">
+        <Kit no={m.p.no} size={60} keeper={m.p.pos === "GK"} />
+        <div>
+          <strong className="answer-big">{m.p.short}</strong>
+          <span className="answer-line">{numWord(m.moments.length).replace(/^./, (c) => c.toUpperCase())} 9+ ratings from you, and your MOTM every time</span>
+        </div>
+      </div>
+      <ul className="pt-moments" aria-label="His 9+ matches">
+        {m.moments.map((x) => <li key={x.m.id}><span className="pt-crown" aria-hidden>★</span><strong className="num">{f1(x.v)}</strong><b>{x.m.label}</b><small>{x.m.date}</small></li>)}
+      </ul>
+      <div className="vs-pair j-pair">
+        <div className="you"><small>His moments</small><strong className="num">{f1(momentsMedian)}</strong></div>
+        <span className="vs">vs</span>
+        <div className="plain"><small>Every other match</small><strong className="num">{f1(m.restMedian)}</strong></div>
+      </div>
+      <p className="answer-line">Only <b className="num">{pctOf(m.moments.length, m.apps)}%</b> of his <b className="num">{m.apps}</b> matches. Most weeks you don&apos;t see him as elite; on his days, he&apos;s the main character.</p>
+    </Moment>
+  );
+}
+
+/**
+ * The Premium "Your player types" set. These need a long season (12+ appearances per player, 7+ losses), so the
+ * preview uses a full sample season; ?types=now runs the same rules on your real matches (the honest early view).
+ */
+function PlayerTypes({ matches }: { matches: JournalMatch[] }) {
+  const now = useReviewParam("types", "now");
+  const t = playerTypes(now ? seasonFromJournal(matches) : SEASON_FULL);
+  const cards = [
+    { key: "unsung", node: <UnsungHero t={t} full={!now} />, on: !!t.unsung },
+    { key: "consistent", node: <MrConsistent t={t} full={!now} />, on: !!t.consistent },
+    { key: "highslows", node: <HighsAndLows t={t} full={!now} />, on: !!t.highslows },
+    { key: "scapegoat", node: <Scapegoat t={t} full={!now} />, on: !!t.scapegoat },
+    { key: "moments", node: <MomentsPlayer t={t} full={!now} />, on: !!t.moments },
+    { key: "to-come", node: <TypesToCome t={t} losses={t.losses} />, on: [t.unsung, t.consistent, t.highslows, t.scapegoat, t.moments].some((x) => !x) },
+  ].filter((c) => c.on);
+  return (
+    <SwipeSet id="player-types" title="Your player types" sub={now ? `From your ${t.matches} rated matches` : `Sample: a full season of ${t.matches} matches`} cards={cards} />
+  );
+}
+
+/** What isn't revealed yet: each type only shows once a player passes every threshold (the doc's guardrails). */
+function TypesToCome({ t, losses }: { t: Types; losses: number }) {
+  const rows = [
+    { id: "unsung", name: "Unsung Hero", need: "A player in your top 3 at least 10 times, with your MOTM twice at most." },
+    { id: "consistent", name: "Mr Consistent", need: "90% of one player's ratings inside a band no wider than 0.5." },
+    { id: "highslows", name: "Highs & Lows", need: "A player 3+ times in your top 3 and your bottom 3, with a clear gap between the two." },
+    { id: "scapegoat", name: "Scapegoat", need: `7 or more losses rated. You've rated ${numWord(losses)} so far.` },
+    { id: "moments", name: "Moments Player", need: "Three or more 9+ ratings for one player, each with your MOTM." },
+  ].filter((r) => !t[r.id as TypeId]);
+  if (!rows.length) return null;
+  return (
+    <Moment id="types-to-come" accent="violet" question="Which player types are still to come?" title="More types unlock as you rate"
+      context={`Your ratings · ${t.matches} matches · ${SEASON}`}
+      note={<>Each type needs 12+ appearances from a player and only shows when the pattern is clear, so a few odd matches never create a label.</>}>
+      <ul className="pt-todo">
+        {rows.map((r) => <li key={r.id}><b>{r.name}</b><span>{r.need}</span></li>)}
+      </ul>
+    </Moment>
+  );
+}
+
+
 /* ---------------- Player Patterns ---------------- */
 
 const counts = (p: MyPlayer) => {
@@ -1788,24 +2396,70 @@ function PlayerPattern() {
   );
 }
 
-function UnsungHero({ matches }: { matches: JournalMatch[] }) {
-  const p = [...eligible].sort((a, b) => (b.top3 - b.myMotm) - (a.top3 - a.myMotm))[0];
+/**
+ * Results and Your Players (the original "Results Influence How You Rate Salah", 17 Nov): your average rating for a
+ * player after a win, a draw and a loss. All = who the result moves most (win minus loss); pick a player for his bars.
+ * The whole-team version is Rating by Result in Manager & Team.
+ */
+const resultRows = eligible.map((p) => {
+  const rs = playerByResult(p.short);
+  const w = rs[0].avg, l = rs[2].avg;
+  return { p, rs, swing: w !== null && l !== null ? Math.round((w - l) * 10) / 10 : null };
+});
+
+function ResultsPlayers() {
+  const { playerFilter, setPlayerFilter } = usePrototype();
+  const linked = useReviewValue("resultsof");
+  const value = playerFilter.jresult ?? (linked && eligible.some((x) => x.short === linked) ? linked : "all");
+  const { shown, loading } = useSwap(value);
+  const row = resultRows.find((x) => x.p.short === shown);
+  const ranked = resultRows.filter((x) => x.swing !== null).sort((a, b) => Math.abs(b.swing!) - Math.abs(a.swing!));
+  const lead = ranked[0];
+  const headline = (x: typeof resultRows[number]) => {
+    const s = x.swing ?? 0;
+    return Math.abs(s) < ALIGNED_WITHIN ? `Results don't move ${x.p.short} with you` : s > 0 ? `Losses cost ${x.p.short} ${f1(s)} with you` : `${x.p.short} gets more from you after losses`;
+  };
   return (
-    <Moment id="unsung" accent="gold" question="Who do you rate highly but rarely crown?" title="Your Unsung Hero"
-      context={`Your ratings · ${matches.length} matches · ${SEASON}`}
-      note={<>Top 3 = one of your three highest-rated players in that match.</>}>
-      <div className="div-hero">
-        <Kit no={p.no} size={60} keeper={p.pos === "GK"} />
-        <div>
-          <strong className="answer-big">{p.short}</strong>
-          <span className="answer-line">In your top 3 in <b className="num">{p.top3}</b> of <b className="num">{p.apps}</b> matches, your MOTM only <b className="num">{p.myMotm}</b> {p.myMotm === 1 ? "time" : "times"}</span>
+    <Moment id="presult" accent="sky" question="Does the result change how you rate a player?" title={row ? `Results and ${row.p.short}` : "Results and Your Players"}
+      context={row ? `${row.p.name} · your ${row.p.apps} ratings by result · ${SEASON}` : `Your average per player, after a win vs after a loss · ${SEASON}`}
+      filter={<PlayerFilter label="Player" options={playerOptions(eligible)} value={value} onChange={(id) => setPlayerFilter("jresult", id)} />}
+      note={<>Your average rating for the player after each result. The swing = after a win minus after a loss. The whole team is in Rating by Result (Manager &amp; Team). Players need {MIN_MATCHES}+ of your ratings.</>}>
+      {loading ? <Skeleton rows={3} /> : row ? (
+        <div className="swap-in j-stack">
+          <div className="answer">
+            <strong className="answer-big">{headline(row)}</strong>
+            <span className="answer-line">{row.rs.filter((r) => r.avg !== null).map((r, i) => <span key={r.r}>{i > 0 && " · "}<b className="num">{f1(r.avg!)}</b> after {RESULT_WORD[r.r]}</span>)}</span>
+          </div>
+          <ul className="j-rbars" aria-label={`Your average rating for ${row.p.short} by result`}>
+            {row.rs.map((r) => (
+              <li key={r.r}>
+                <em className={`res ${r.r}`}>{r.r}</em>
+                <span className="j-rb-who">{RESULT_TITLE[r.r]}<small>{matchesWord(r.n)}</small></span>
+                <span className="j-rb-bar"><i style={{ width: `${(r.avg ?? 0) * 10}%` }} /></span>
+                <b className="num">{r.avg === null ? "—" : f1(r.avg)}</b>
+              </li>
+            ))}
+          </ul>
         </div>
-      </div>
-      <div className="vs-pair j-pair">
-        <div className="you"><small>Your top 3</small><strong className="num">{p.top3}</strong></div>
-        <span className="vs">vs</span>
-        <div className="you"><small>Your MOTM</small><strong className="num">{p.myMotm}</strong></div>
-      </div>
+      ) : (
+        <div className="swap-in">
+          <div className="answer">
+            <strong className="answer-big">Results move {lead.p.short} most</strong>
+            <span className="answer-line"><b className="num">{f1(lead.swing!)}</b> lower after a loss than after a win</span>
+          </div>
+          <ul className="movers j-patterns j-rlist">
+            {ranked.map((x) => (
+              <li key={x.p.short}>
+                <button onClick={() => setPlayerFilter("jresult", x.p.short)} aria-label={`${headline(x)}. Show his ratings by result`}>
+                  <Kit no={x.p.no} size={28} keeper={x.p.pos === "GK"} />
+                  <span className="mv-name">{x.p.short}<small>Win <span className="num">{f1(x.rs[0].avg!)}</span> · Loss <span className="num">{f1(x.rs[2].avg!)}</span></small></span>
+                  <span className="j-rl-swing"><Delta value={-x.swing!} /><small>after a loss</small></span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </Moment>
   );
 }
@@ -1841,10 +2495,10 @@ function MyPositions() {
 let lastIndex = -1;
 
 /** Premium cards, shown only with the review toggle: designed later, after the free Journal (Michel, 11 Nov). */
-function PremiumLater({ children }: { children: ReactNode }) {
+function PremiumLater({ children, note = "Premium · later. Identity cards like Unsung Hero and Mr Consistent come after the free Journal." }: { children: ReactNode; note?: string }) {
   return (
     <section className="j-premium-later" aria-label="Premium cards, later">
-      <p className="j-premium-head"><PremiumBadge /><span>Premium · later. Identity cards like Unsung Hero and Mr Consistent come after the free Journal.</span></p>
+      <p className="j-premium-head"><PremiumBadge /><span>{note}</span></p>
       {children}
     </section>
   );
@@ -1876,32 +2530,58 @@ export function JournalTab({ tab }: { tab: JournalTabId }) {
           { key: "boldest", node: <MotmBoldest matches={matches} /> },
           { key: "split", node: <MotmSplit matches={matches} /> },
           { key: "agreement", node: <MotmAgreement matches={matches} /> },
+          { key: "venue", node: <MotmHomeAway matches={matches} /> },
         ]} />
         <SwipeSet id="look" title="What you look for" sub="What your MOTM picks have in common" cards={[
           { key: "bypos", node: <MotmByPosition matches={matches} /> },
           { key: "output", node: <MotmOutput matches={matches} /> },
           { key: "standout", node: <MotmStandout matches={matches} /> },
         ]} />
+        {edges.premium && (
+          <PremiumLater note="Premium · later. Deeper MOTM cards come after the free Journal.">
+            <SwipeSet id="motm-premium" title="Your MOTM, deeper" sub="Wins and losses, and how independent you are" cards={[
+              { key: "motmwl", node: <MotmWinsLosses matches={matches} /> },
+              { key: "independent", node: <MotmIndependence matches={matches} /> },
+            ]} />
+          </PremiumLater>
+        )}
       </>
     ),
-    identity: <><Baseline matches={matches} /><RangeCard /></>,
+    identity: <><Baseline matches={matches} /><RangeCard /><HowYouRate /></>,
     "vs-fans": (
       <>
         <Agreement matches={matches} />
-        <SwipeSet id="players-vs" title="Players: you vs the fans" sub="Who you differ on, how often, and where you agree" cards={[
+        <SwipeSet id="players-vs" title="Players: you vs the fans" sub="Who you differ on, how often, how strongly, and where you agree" cards={[
           { key: "differ", node: <WhereYouDiffer matches={matches} /> },
           { key: "abovebelow", node: <AboveBelowFans matches={matches} /> },
+          { key: "strong", node: <StrongDisagree matches={matches} /> },
           { key: "agreemost", node: <AgreeMost matches={matches} /> },
+        ]} />
+        {edges.premium && <PremiumLater note="Premium · later. Where you sit among all fans comes after the free Journal."><PlayerPercentiles /></PremiumLater>}
+      </>
+    ),
+    manager: (
+      <>
+        <ManagerVsTeamYou matches={matches} />
+        <ResultEffect matches={matches} />
+        {/* TechAhead's other two manager cards, as one set at the end (14 Nov). */}
+        <SwipeSet id="manager-more" title="More on the manager" sub="You vs the fans, and how the result moves him" cards={[
+          { key: "mgrfans", node: <ManagerVsFans matches={matches} /> },
+          { key: "mgrresult", node: <ManagerByResult matches={matches} /> },
         ]} />
       </>
     ),
-    manager: <><ManagerVsTeamYou matches={matches} /><ResultEffect matches={matches} /></>,
     // Identity / archetype cards (Unsung Hero, Mr Consistent, …) are premium and come after the free Journal (Michel, 11 Nov).
     players: (
       <>
         <PlayerPattern />
+        <ResultsPlayers />
         <MyPositions />
-        {edges.premium && <PremiumLater><UnsungHero matches={matches} /></PremiumLater>}
+        {edges.premium && (
+          <PremiumLater>
+            <PlayerTypes matches={matches} />
+          </PremiumLater>
+        )}
       </>
     ),
   };

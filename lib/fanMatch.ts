@@ -132,6 +132,29 @@ export function motmVotesFor(m: JournalMatch) {
   return { split, others: left };
 }
 
+type Votes = { split: { short: string; share: number }[]; others: number };
+
+/** Everyone level at the top of the vote: one player normally, more on a tie (Michel, 18 Nov). */
+export function voteLeaders(v: Votes) {
+  const top = v.split[0]?.share ?? 0;
+  return v.split.filter((x) => x.share === top).map((x) => x.short);
+}
+
+/**
+ * Review state "Tie at the top" (?motmtie=1): the leader is joined by the next player you didn't pick, 3 points
+ * lower, with the difference taken from Others. Rapid Wien: Van Dijk 26, Díaz 26, Salah 24, Mac Allister 10.
+ */
+export function motmTieDemo(v: Votes, mine: string): Votes {
+  const [lead, ...rest] = v.split;
+  const join = rest.find((x) => x.short !== mine);
+  if (!lead || !join) return v;
+  const share = lead.share - 3;
+  const others = v.others + 3 - (share - join.share);
+  if (others < 0) return v;
+  const split = [{ ...lead, share }, { ...join, share }, ...rest.filter((x) => x !== join)].sort((a, b) => b.share - a.share);
+  return { split, others };
+}
+
 /** "M. Salah" style label, as on the Club Hub match card. */
 export function shortLabel(short: string) {
   const [first, ...rest] = (FULL_NAME[short] ?? short).split(" ");

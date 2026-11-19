@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { CLUB, MANAGER, SQUAD, fansUnlocked, type Fixture, type Rating } from "@/lib/data";
 import { fanMatchFor, shortLabel } from "@/lib/fanMatch";
+import { lineupFor } from "@/lib/journal";
+import { PicksCompare, Stat, picksFrom, type Picks } from "./Picks";
 import { useJournalMatches } from "./Journal";
 import { usePrototype } from "./Provider";
 import { Img, Kit, PendingPill, RatingPill, TeamLogo } from "./ui";
@@ -87,18 +89,6 @@ function Lineup() {
       </div>
     </>
   );
-}
-
-function Stat({ kind, label, icon, onClick }: { kind: "fan" | "plain"; label: string; icon: "cup" | "down" | "up"; onClick?: () => void }) {
-  const file = kind === "plain" ? `${icon}-white.svg` : `${icon}-${kind}.svg`;
-  const body = (
-    <>
-      <Img src={file} size={12} />
-      <span>{label}</span>
-    </>
-  );
-  if (!onClick) return <span className={`stat ${kind}`}>{body}</span>;
-  return <button className={`stat ${kind}`} onClick={onClick}>{body}</button>;
 }
 
 function short(r: Rating) {
@@ -188,7 +178,16 @@ export function MatchCard({ fixture, focused, openRatings }: { fixture: Fixture;
   // Signed out = nothing rated, so they get the fans' view as their main view.
   const { edges } = usePrototype();
   const journal = useJournalMatches();
-  const rated = edges.account !== "out" && journal.some((m) => m.id === fixture.id);
+  const mine = edges.account !== "out" ? journal.find((m) => m.id === fixture.id) : undefined;
+  const rated = Boolean(mine);
+  // Quick picks (Michel, 16 Nov): rated = your picks (green) next to the fans' (yellow); not rated = fans only.
+  const lineup = mine ? lineupFor(mine) : null;
+  const fanPicks: Picks = fm
+    ? { motm: shortLabel(fm.split[0].short), low: shortLabel(fm.low.short), high: shortLabel(fm.high.short) }
+    : mine && lineup ? picksFrom(lineup, mine.fanMotm, "fans") : { motm: short(SQUAD[1]), low: short(SQUAD[5]), high: short(SQUAD[1]) };
+  const yourPicks = mine && lineup ? picksFrom(lineup, mine.myMotm, "you") : null;
+  const lowSheet = () => openRatings({ mode: "lowest", scope: "match", title: fixtureName });
+  const highSheet = () => openRatings({ mode: "top", scope: "match", title: fixtureName });
 
   return (
     <article id={`fixture-${fixture.id}`} className={`fixture is-${fixture.status}${focused ? " focused" : ""}`} aria-label={`${fixtureName}, ${fixture.dateLabel}, ${fixtureBadge(fixture).label}`}>
@@ -208,16 +207,19 @@ export function MatchCard({ fixture, focused, openRatings }: { fixture: Fixture;
       <p className="fx-venue"><Img src="stadium.svg" w={13} h={13} /><span>{fixture.venue}{note && <> · {note}</>}</span></p>
       <ActionArea fixture={fixture} />
 
-      {unlocked && (
+      {unlocked && (yourPicks ? (
+        // Rated: your picks (green) on top of the fans' (yellow), same columns, for a quick side-by-side.
+        <PicksCompare you={yourPicks} fans={fanPicks} onFanLow={lowSheet} onFanHigh={highSheet} />
+      ) : (
         <div className="summary-table fans-only" role="table" aria-label="Fans' picks for this match">
           <span className="stat plain-head" role="columnheader"><Img src="cup-white.svg" size={12} />Fans&apos; MOTM</span>
           <span className="stat plain-head" role="columnheader"><Img src="down-white.svg" size={12} />Lowest</span>
           <span className="stat plain-head" role="columnheader"><Img src="up-white.svg" size={12} />Highest</span>
-          <Stat kind="fan" icon="cup" label={fm ? shortLabel(fm.split[0].short) : short(SQUAD[1])} />
-          <Stat kind="fan" icon="down" label={fm ? shortLabel(fm.low.short) : short(SQUAD[5])} onClick={() => openRatings({ mode: "lowest", scope: "match", title: fixtureName })} />
-          <Stat kind="fan" icon="up" label={fm ? shortLabel(fm.high.short) : short(SQUAD[1])} onClick={() => openRatings({ mode: "top", scope: "match", title: fixtureName })} />
+          <Stat kind="fan" icon="cup" label={fanPicks.motm} />
+          <Stat kind="fan" icon="down" label={fanPicks.low} onClick={lowSheet} />
+          <Stat kind="fan" icon="up" label={fanPicks.high} onClick={highSheet} />
         </div>
-      )}
+      ))}
 
       {fm && (rated ? (
         <Link className="fx-fan-insights mine" href={`/my-journal/match/${fixture.id}`} scroll={false}>

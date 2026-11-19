@@ -41,7 +41,7 @@ export function Provider({ children }: { children: ReactNode }) {
   const [fixtures, setFixtures] = useState(FIXTURES);
   const [filter, setFilter] = useState<HistoryFilter>("all");
   const [range, setRange] = useState<DateRange>(null);
-  const [edges, setEdgeState] = useState<EdgeStates>({ raceTie: false, mood: "normal", history: "ready", managerGap: "gap", managerTrend: "many", draws: true, account: "in", followResult: "ok", season: "current", sample: "full", partial: false, journal: "full", premium: false });
+  const [edges, setEdgeState] = useState<EdgeStates>({ raceTie: false, mood: "normal", history: "ready", managerGap: "gap", managerTrend: "many", draws: true, account: "in", followResult: "ok", season: "current", sample: "full", partial: false, journal: "full", premium: false, rare: false, motmTie: false });
   const [follow, setFollow] = useState<FollowState>("not_following");
   const followTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -62,6 +62,8 @@ export function Provider({ children }: { children: ReactNode }) {
     if (q.get("rated") === "open") setFixtures((all) => all.map((f) => (f.id === "open" ? { ...f, youRated: true } : f)));
     pick("journal", ["full", "new"]);
     if (q.get("premium") === "1") next.premium = true;
+    if (q.get("rare") === "1") next.rare = true;
+    if (q.get("motmtie") === "1") next.motmTie = true;
     if (Object.keys(next).length) setEdgeState((e) => ({ ...e, ...next }));
     const fol = q.get("follow");
     if (fol === "following" || fol === "pending_follow" || fol === "pending_unfollow") setFollow(fol);

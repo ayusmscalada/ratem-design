@@ -360,3 +360,16 @@ export function NavGlyph({ name, size = 24 }: { name: "home" | "shield" | "book"
     </svg>
   );
 }
+
+/** Rare moments (after launch): the gold record medal, a star on a ribboned medal. */
+export function RecordMedal({ size = 56 }: { size?: number }) {
+  return (
+    <svg className="rec-medal" width={size} height={size * 1.15} viewBox="0 0 48 55" aria-hidden>
+      <path d="M14 2h8l5 17h-8zM34 2h-8l-5 17h8z" fill="#c99410" />
+      <path d="M14 2h8l5 17h-8z" fill="#ffd34d" opacity=".55" />
+      <circle cx="24" cy="35" r="18" fill="#ffd34d" stroke="#b8860b" strokeWidth="2" />
+      <circle cx="24" cy="35" r="13.5" fill="none" stroke="#b8860b" strokeWidth="1.2" opacity=".6" />
+      <path d="m24 26.5 2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z" fill="#7a5600" />
+    </svg>
+  );
+}
